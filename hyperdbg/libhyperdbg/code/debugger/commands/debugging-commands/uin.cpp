@@ -65,7 +65,7 @@ CommandShowUserInMessage(USHORT UserChosenRegister,
         RegisterName = "EAX";
         break;
     }
-    
+
     ShowMessages("  Port:     0x%04X (%d)\n", PortAddress, PortAddress);
     ShowMessages("  Register: %s\n", RegisterName);
     ShowMessages("  Result:   0x%08X\n", Data);
@@ -73,33 +73,32 @@ CommandShowUserInMessage(USHORT UserChosenRegister,
 
 /**
  * @brief uin command handler
- * 
+ *
  * @param InRequest
- * 
- * @return VOID
+ *
+ * @return BOOLEAN
  */
-VOID
+BOOLEAN
 CommandUserInRequest(DEBUGGER_USER_IN_REQUEST_RESPONSE InRequest)
 {
-    BOOL                              Status;
-    ULONG                             ReturnedLength;
-    USHORT                            UserChosenRegister = InRequest.UserChosenRegister;
-    USHORT                            PortAddress        = InRequest.PortAddress;
+    BOOL   Status;
+    ULONG  ReturnedLength;
+    USHORT UserChosenRegister = InRequest.UserChosenRegister;
+    USHORT PortAddress        = InRequest.PortAddress;
 
     if (g_IsSerialConnectedToRemoteDebuggee)
     {
         //
         // It's on a debugger mode
         //
-        KdSendUserInPacketToDebuggee(InRequest);
-        return;
+        return KdSendUserInPacketToDebuggee(InRequest);
     }
     else
     {
         //
         // It's on a local debugging mode
         //
-        AssertShowMessageReturnStmt(g_IsKdModuleLoaded, g_DeviceHandle, ASSERT_MESSAGE_KD_NOT_LOADED, ASSERT_MESSAGE_DRIVER_NOT_LOADED, AssertReturn);
+        AssertShowMessageReturnStmt(g_IsKdModuleLoaded, g_DeviceHandle, ASSERT_MESSAGE_KD_NOT_LOADED, ASSERT_MESSAGE_DRIVER_NOT_LOADED, AssertReturnFalse);
 
         //
         // By the way, we don't need to send an input buffer
@@ -122,7 +121,7 @@ CommandUserInRequest(DEBUGGER_USER_IN_REQUEST_RESPONSE InRequest)
         if (!Status)
         {
             ShowMessages("ioctl failed with code 0x%x\n", PlatformGetLastError());
-            return;
+            return FALSE;
         }
 
         if (InRequest.KernelStatus == DEBUGGER_OPERATION_WAS_SUCCESSFUL)
@@ -135,11 +134,13 @@ CommandUserInRequest(DEBUGGER_USER_IN_REQUEST_RESPONSE InRequest)
             //
             ULONG Data = InRequest.Data;
             CommandShowUserInMessage(UserChosenRegister, PortAddress, Data);
-        }
 
+            return TRUE;
+        }
         else
         {
-            ShowMessages("Receiving IN instruction result was not successful :(\n");
+            ShowMessages("Receiving IN instruction result was not successful\n");
+            return FALSE;
         }
     }
 }
@@ -230,7 +231,6 @@ CommandUserIn(vector<CommandToken> CommandTokens, string Command)
             SetPort = TRUE;
             continue;
         }
-        
     }
 
     //

@@ -74,12 +74,12 @@ CommandShowUserOutMessage(USHORT UserChosenRegister,
 
 /**
  * @brief uout command handler
- * 
+ *
  * @param OutRequest
- * 
- * @return VOID
+ *
+ * @return BOOLEAN
  */
-VOID
+BOOLEAN
 CommandUserOutRequest(DEBUGGER_USER_OUT_REQUEST_RESPONSE OutRequest)
 {
     BOOL   Status;
@@ -93,15 +93,14 @@ CommandUserOutRequest(DEBUGGER_USER_OUT_REQUEST_RESPONSE OutRequest)
         //
         // It's on a debugger mode
         //
-        KdSendUserOutPacketToDebuggee(OutRequest);
-        return;
+        return KdSendUserOutPacketToDebuggee(OutRequest);
     }
     else
     {
         //
         // It's on a local debugging mode
         //
-        AssertShowMessageReturnStmt(g_IsKdModuleLoaded, g_DeviceHandle, ASSERT_MESSAGE_KD_NOT_LOADED, ASSERT_MESSAGE_DRIVER_NOT_LOADED, AssertReturn);
+        AssertShowMessageReturnStmt(g_IsKdModuleLoaded, g_DeviceHandle, ASSERT_MESSAGE_KD_NOT_LOADED, ASSERT_MESSAGE_DRIVER_NOT_LOADED, AssertReturnFalse);
 
         //
         // By the way, we don't need to send an input buffer
@@ -124,17 +123,21 @@ CommandUserOutRequest(DEBUGGER_USER_OUT_REQUEST_RESPONSE OutRequest)
         if (!Status)
         {
             ShowMessages("ioctl failed with code 0x%x\n", PlatformGetLastError());
-            return;
+            return FALSE;
         }
 
         if (OutRequest.KernelStatus == DEBUGGER_OPERATION_WAS_SUCCESSFUL)
         {
             CommandShowUserOutMessage(UserChosenRegister, PortAddress, Value);
+
+            return TRUE;
         }
 
         else
         {
-            ShowMessages("Receiving OUT instruction result was not successful :(\n");
+            ShowMessages("Receiving OUT instruction result was not successful\n");
+
+            return FALSE;
         }
     }
 }

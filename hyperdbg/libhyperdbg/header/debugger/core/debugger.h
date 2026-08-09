@@ -223,7 +223,7 @@ CommandEventsClearAllEventsAndResetTags();
 VOID
 CommandFlushRequestFlush();
 
-VOID
+BOOLEAN
 CommandCpuidRequestCpuid(UINT32 FunctionId, UINT32 SubFunctionId);
 
 VOID
@@ -231,16 +231,16 @@ CommandShowUserCpuidMessage(UINT32                           FunctionId,
                             UINT32                           SubFunctionId,
                             PDEBUGGER_CPUID_REQUEST_RESPONSE CpuidRequest);
 
-VOID
+BOOLEAN
 CommandUserInRequest(DEBUGGER_USER_IN_REQUEST_RESPONSE InRequest);
+
+BOOLEAN
+CommandUserOutRequest(DEBUGGER_USER_OUT_REQUEST_RESPONSE OutRequest);
 
 VOID
 CommandShowUserInMessage(USHORT UserChosenRegister,
                          USHORT PortAddress,
                          ULONG  Data);
-
-VOID
-CommandUserOutRequest(DEBUGGER_USER_OUT_REQUEST_RESPONSE OutRequest);
 
 VOID
 CommandShowUserOutMessage(USHORT UserChosenRegister,

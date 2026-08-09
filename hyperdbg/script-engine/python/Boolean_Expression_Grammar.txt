@@ -29,7 +29,7 @@
 .ThreeOpFunc4->wcsncmp
 
 .OperatorsOneOperand->inc dec reference dereference
-.ScriptVariableType->void bool char short int long unsigned signed float double
+.ScriptVariableType->void bool char wchar_t short int long unsigned signed float double
 
 S->BE
 

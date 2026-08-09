@@ -60,6 +60,27 @@ ScriptEngineTransferMemory(PSCRIPT_ENGINE_GENERAL_REGISTERS Registers,
 }
 
 static BOOLEAN
+ScriptEngineAddressRangeIsValid(PSCRIPT_ENGINE_GENERAL_REGISTERS Registers,
+                                UINT64 Address,
+                                UINT64 AddressSpace,
+                                UINT64 Size)
+{
+    if (!Size || Size > 0xffffffffULL)
+        return FALSE;
+    if (AddressSpace == SCRIPT_ENGINE_ADDRESS_SPACE_LOCAL)
+        return ScriptEngineTypedLocalRangeIsValid(Registers, Address, (UINT32)Size);
+    return AddressSpace == SCRIPT_ENGINE_ADDRESS_SPACE_REMOTE &&
+           CheckAccessValidityAndSafety(Address, (UINT32)Size);
+}
+
+static BOOLEAN
+ScriptEngineSymbolIsImmediateInteger(PSYMBOL Symbol)
+{
+    return Symbol && Symbol->Len == SYMBOL_VALUE_KIND_INTEGER &&
+           (Symbol->Type & 0xffffffffULL) == SYMBOL_NUM_TYPE;
+}
+
+static BOOLEAN
 ScriptEngineFloatingSymbolIsReadable(PSCRIPT_ENGINE_GENERAL_REGISTERS Registers, PSYMBOL Symbol)
 {
     UINT64 BaseType = Symbol->Type & 0xffffffffULL;
@@ -1177,7 +1198,10 @@ ScriptEngineExecute(PGUEST_REGS                      GuestRegs,
         SrcVal1 = GetValue(GuestRegs, ActionDetail, ScriptGeneralRegisters, Src1, FALSE);
         SrcVal2 = GetValue(GuestRegs, ActionDetail, ScriptGeneralRegisters, Src2, FALSE);
         DesVal = 0;
-        if ((SrcVal2 != 1 && SrcVal2 != 2 && SrcVal2 != 4 && SrcVal2 != 8) ||
+        if (!ScriptEngineSymbolIsImmediateInteger(Src1) ||
+            !ScriptEngineSymbolIsImmediateInteger(Src2) ||
+            !ScriptEngineIntegerSymbolIsWritable(ScriptGeneralRegisters, Des) ||
+            (SrcVal2 != 1 && SrcVal2 != 2 && SrcVal2 != 4 && SrcVal2 != 8) ||
             !ScriptEngineTransferMemory(ScriptGeneralRegisters, SrcVal0, SrcVal1, &DesVal, (UINT32)SrcVal2, FALSE))
             HasError = TRUE;
         else
@@ -1200,7 +1224,9 @@ ScriptEngineExecute(PGUEST_REGS                      GuestRegs,
         SrcVal1 = GetValue(GuestRegs, ActionDetail, ScriptGeneralRegisters, Src1, FALSE);
         SrcVal2 = GetValue(GuestRegs, ActionDetail, ScriptGeneralRegisters, Src2, FALSE);
         DesVal  = GetValue(GuestRegs, ActionDetail, ScriptGeneralRegisters, Src3, FALSE);
-        if ((DesVal != 1 && DesVal != 2 && DesVal != 4 && DesVal != 8) ||
+        if (!ScriptEngineSymbolIsImmediateInteger(Src2) ||
+            !ScriptEngineSymbolIsImmediateInteger(Src3) ||
+            (DesVal != 1 && DesVal != 2 && DesVal != 4 && DesVal != 8) ||
             !ScriptEngineTransferMemory(ScriptGeneralRegisters, SrcVal1, SrcVal2, &SrcVal0, (UINT32)DesVal, TRUE))
             HasError = TRUE;
         break;
@@ -1221,6 +1247,13 @@ ScriptEngineExecute(PGUEST_REGS                      GuestRegs,
         SrcVal0 = GetValue(GuestRegs, ActionDetail, ScriptGeneralRegisters, Src0, FALSE);
         SrcVal1 = GetValue(GuestRegs, ActionDetail, ScriptGeneralRegisters, Src1, FALSE);
         SrcVal2 = GetValue(GuestRegs, ActionDetail, ScriptGeneralRegisters, Src2, FALSE);
+        if (!ScriptEngineSymbolIsImmediateInteger(Src1) ||
+            !ScriptEngineSymbolIsImmediateInteger(Src2) ||
+            !ScriptEngineAddressRangeIsValid(ScriptGeneralRegisters, SrcVal0, SrcVal1, SrcVal2))
+        {
+            HasError = TRUE;
+            break;
+        }
         while (Done < SrcVal2 && !HasError)
         {
             UINT32 Chunk = (UINT32)((SrcVal2 - Done) > sizeof(ZeroBuffer) ? sizeof(ZeroBuffer) : (SrcVal2 - Done));
@@ -1252,6 +1285,15 @@ ScriptEngineExecute(PGUEST_REGS                      GuestRegs,
         DesVal  = GetValue(GuestRegs, ActionDetail, ScriptGeneralRegisters, Src3, FALSE);
         {
             UINT64 Size = GetValue(GuestRegs, ActionDetail, ScriptGeneralRegisters, Src4, FALSE);
+            if (!ScriptEngineSymbolIsImmediateInteger(Src1) ||
+                !ScriptEngineSymbolIsImmediateInteger(Src3) ||
+                !ScriptEngineSymbolIsImmediateInteger(Src4) ||
+                !ScriptEngineAddressRangeIsValid(ScriptGeneralRegisters, SrcVal0, SrcVal1, Size) ||
+                !ScriptEngineAddressRangeIsValid(ScriptGeneralRegisters, SrcVal2, DesVal, Size))
+            {
+                HasError = TRUE;
+                break;
+            }
             Backward = SrcVal1 == DesVal && SrcVal0 > SrcVal2 && SrcVal0 < SrcVal2 + Size;
             while (Done < Size && !HasError)
             {
@@ -2673,7 +2715,7 @@ ScriptEngineExecute(PGUEST_REGS                      GuestRegs,
                         (unsigned long long)(*Indx * sizeof(SYMBOL)));
         *Indx = *Indx + 1;
 
-        DesVal = ScriptEngineFunctionWcslen((const wchar_t *)SrcVal0);
+        DesVal = ScriptEngineFunctionWcslen((const UINT16 *)SrcVal0);
 
         SetValue(GuestRegs, ScriptGeneralRegisters, Des, DesVal);
 

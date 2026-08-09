@@ -314,6 +314,143 @@ EmitTypedScalarLoad(PSYMBOL_BUFFER            CodeBuffer,
     return ValueTemp;
 }
 
+static PSCRIPT_ENGINE_TOKEN
+EmitScalarCast(PSYMBOL_BUFFER            CodeBuffer,
+               PSCRIPT_ENGINE_TOKEN      ValueToken,
+               PVARIABLE_TYPE            DestinationType,
+               PSCRIPT_ENGINE_ERROR_TYPE Error)
+{
+    PVARIABLE_TYPE SourceType = ResolveIdentifierVariableType(ValueToken);
+    UINT64 SourceTypeId;
+    UINT64 DestinationTypeId;
+    PSCRIPT_ENGINE_TOKEN Result;
+    PSYMBOL Symbol;
+
+    if (!SourceType)
+        SourceType = (PVARIABLE_TYPE)ValueToken->VariableType;
+    SourceTypeId      = GetScriptScalarTypeId(SourceType);
+    DestinationTypeId = GetScriptScalarTypeId(DestinationType);
+    if (SourceTypeId == SCRIPT_SCALAR_TYPE_INVALID || DestinationTypeId == SCRIPT_SCALAR_TYPE_INVALID ||
+        SourceTypeId == SCRIPT_SCALAR_TYPE_F80 || DestinationTypeId == SCRIPT_SCALAR_TYPE_F80)
+    {
+        *Error = SCRIPT_ENGINE_ERROR_UNDEFINED_VARIABLE_TYPE;
+        return NULL;
+    }
+    if (SourceTypeId == DestinationTypeId)
+        return ValueToken;
+
+    Result = NewTemp(Error);
+    if (!Result || *Error != SCRIPT_ENGINE_ERROR_FREE)
+        return NULL;
+    Result->VariableType = DestinationType;
+    Symbol               = NewSymbol();
+    Symbol->Type          = SYMBOL_SEMANTIC_RULE_TYPE;
+    Symbol->Value         = FUNC_CAST_SCALAR;
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    Symbol = ToSymbol(ValueToken, Error);
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    Symbol = ToSymbol(Result, Error);
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    Symbol        = NewSymbol();
+    Symbol->Type  = SYMBOL_NUM_TYPE;
+    Symbol->Value = SourceTypeId;
+    PushSymbol(CodeBuffer, Symbol);
+    Symbol->Value = DestinationTypeId;
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    return Result;
+}
+
+static PSCRIPT_ENGINE_TOKEN
+EmitLocalElementAddress(PSYMBOL_BUFFER            CodeBuffer,
+                        PSCRIPT_ENGINE_TOKEN      BaseToken,
+                        PVARIABLE_TYPE            ElementType,
+                        UINT64                    ByteOffset,
+                        PSCRIPT_ENGINE_ERROR_TYPE Error)
+{
+    PSCRIPT_ENGINE_TOKEN Address = NewTemp(Error);
+    PSYMBOL Symbol;
+    if (!Address || *Error != SCRIPT_ENGINE_ERROR_FREE)
+        return NULL;
+    Address->VariableType = CreatePointerType(ElementType);
+    Address->AddressSpace = SCRIPT_ENGINE_ADDRESS_SPACE_LOCAL;
+    if (!Address->VariableType)
+    {
+        *Error = SCRIPT_ENGINE_ERROR_TEMP_LIST_FULL;
+        return NULL;
+    }
+    ((PVARIABLE_TYPE)Address->VariableType)->PointerProvenance = POINTER_PROVENANCE_LOCAL;
+
+    Symbol        = NewSymbol();
+    Symbol->Type  = SYMBOL_SEMANTIC_RULE_TYPE;
+    Symbol->Value = FUNC_ADD;
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    Symbol = ToSymbol(BaseToken, Error);
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    Symbol        = NewSymbol();
+    Symbol->Type  = SYMBOL_NUM_TYPE;
+    Symbol->Value = ByteOffset;
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    Symbol = ToSymbol(Address, Error);
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    return Address;
+}
+
+static VOID
+EmitTypedScalarStore(PSYMBOL_BUFFER            CodeBuffer,
+                     PSCRIPT_ENGINE_TOKEN      ValueToken,
+                     PSCRIPT_ENGINE_TOKEN      AddressToken,
+                     UINT32                    AddressSpace,
+                     UINT32                    AccessWidth,
+                     PSCRIPT_ENGINE_ERROR_TYPE Error)
+{
+    PSYMBOL Symbol = NewSymbol();
+    Symbol->Type   = SYMBOL_SEMANTIC_RULE_TYPE;
+    Symbol->Value  = FUNC_TYPED_STORE;
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    Symbol = ToSymbol(ValueToken, Error);
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    Symbol = ToSymbol(AddressToken, Error);
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    Symbol        = NewSymbol();
+    Symbol->Type  = SYMBOL_NUM_TYPE;
+    Symbol->Value = AddressSpace;
+    PushSymbol(CodeBuffer, Symbol);
+    Symbol->Value = AccessWidth;
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+}
+
+static VOID
+EmitAggregateZero(PSYMBOL_BUFFER CodeBuffer, PSCRIPT_ENGINE_TOKEN AddressToken, UINT32 AddressSpace, UINT64 ByteCount, PSCRIPT_ENGINE_ERROR_TYPE Error)
+{
+    PSYMBOL Symbol = NewSymbol();
+    Symbol->Type   = SYMBOL_SEMANTIC_RULE_TYPE;
+    Symbol->Value  = FUNC_AGGREGATE_ZERO;
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    Symbol = ToSymbol(AddressToken, Error);
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+    Symbol        = NewSymbol();
+    Symbol->Type  = SYMBOL_NUM_TYPE;
+    Symbol->Value = AddressSpace;
+    PushSymbol(CodeBuffer, Symbol);
+    Symbol->Value = ByteCount;
+    PushSymbol(CodeBuffer, Symbol);
+    RemoveSymbol(&Symbol);
+}
+
 static UINT64
 GetFloatingValueKind(PVARIABLE_TYPE VariableType)
 {
@@ -345,6 +482,8 @@ GetScriptScalarTypeId(PVARIABLE_TYPE VariableType)
         return SCRIPT_SCALAR_TYPE_BOOL;
     if (VariableType->Kind == TY_CHAR)
         return VariableType->IsUnsigned ? SCRIPT_SCALAR_TYPE_U8 : SCRIPT_SCALAR_TYPE_I8;
+    if (VariableType->Kind == TY_WCHAR)
+        return SCRIPT_SCALAR_TYPE_U16;
     if (VariableType->Kind == TY_SHORT)
         return VariableType->IsUnsigned ? SCRIPT_SCALAR_TYPE_U16 : SCRIPT_SCALAR_TYPE_I16;
     if (VariableType->Kind == TY_INT || VariableType->Kind == TY_ENUM)
@@ -2290,6 +2429,16 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
                     Symbol->Type = SYMBOL_TEMP_TYPE;
                     Symbol->Value += CurrentUserDefinedFunction->MaxTempNumber;
                 }
+                else if (Symbol->Type == SYMBOL_REFERENCE_LOCAL_ID_TYPE)
+                {
+                    Symbol->Type = SYMBOL_REFERENCE_TEMP_TYPE;
+                    Symbol->Value += CurrentUserDefinedFunction->MaxTempNumber;
+                }
+                else if (Symbol->Type == SYMBOL_DEREFERENCE_LOCAL_ID_TYPE)
+                {
+                    Symbol->Type = SYMBOL_DEREFERENCE_TEMP_TYPE;
+                    Symbol->Value += CurrentUserDefinedFunction->MaxTempNumber;
+                }
 
                 else if (Symbol->Type == SYMBOL_VARIABLE_COUNT_TYPE)
                 {
@@ -2300,6 +2449,16 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
                         if ((Symbol->Type & 0x7fffffff) == SYMBOL_LOCAL_ID_TYPE)
                         {
                             Symbol->Type = SYMBOL_TEMP_TYPE | (Symbol->Type & 0xffffffff00000000);
+                            Symbol->Value += CurrentUserDefinedFunction->MaxTempNumber;
+                        }
+                        else if ((Symbol->Type & 0x7fffffff) == SYMBOL_REFERENCE_LOCAL_ID_TYPE)
+                        {
+                            Symbol->Type = SYMBOL_REFERENCE_TEMP_TYPE | (Symbol->Type & 0xffffffff00000000);
+                            Symbol->Value += CurrentUserDefinedFunction->MaxTempNumber;
+                        }
+                        else if ((Symbol->Type & 0x7fffffff) == SYMBOL_DEREFERENCE_LOCAL_ID_TYPE)
+                        {
+                            Symbol->Type = SYMBOL_DEREFERENCE_TEMP_TYPE | (Symbol->Type & 0xffffffff00000000);
                             Symbol->Value += CurrentUserDefinedFunction->MaxTempNumber;
                         }
                     }
@@ -2720,6 +2879,7 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
             PSYMBOL                Symbol;
             PSCRIPT_ENGINE_TOKEN   OffsetToken;
             PSYMBOL                OffsetSymbol;
+            UINT32                 AddressSpace;
 
             while (MatchedStack->Pointer)
             {
@@ -2759,6 +2919,9 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
             }
 
             VariableType = (VARIABLE_TYPE *)IdToken->VariableType;
+            AddressSpace = VariableType && VariableType->Kind == TY_PTR ?
+                               GetStructPointerAddressSpace(VariableType, IdToken) :
+                               (IdToken->AddressSpace ? IdToken->AddressSpace : SCRIPT_ENGINE_ADDRESS_SPACE_LOCAL);
             Temp         = NewTemp(Error);
             TempSymbol   = ToSymbol(Temp, Error);
             OffsetToken  = NewTemp(Error);
@@ -2830,7 +2993,7 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
                 PSCRIPT_ENGINE_TOKEN ValueToken = EmitTypedScalarLoad(
                     CodeBuffer,
                     OffsetToken,
-                    IdToken->AddressSpace ? IdToken->AddressSpace : SCRIPT_ENGINE_ADDRESS_SPACE_LOCAL,
+                    AddressSpace,
                     VariableType,
                     Error);
                 if (!ValueToken || *Error != SCRIPT_ENGINE_ERROR_FREE)
@@ -2843,10 +3006,9 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
             }
             else if (!strcmp(Operator->Value, "@ARRAY_INDEX_WRITE"))
             {
-                OffsetToken->Type         = DEFERENCE_TEMP;
                 OffsetToken->VariableType = VariableType;
                 OffsetToken->IsAddress    = TRUE;
-                OffsetToken->AddressSpace = IdToken->AddressSpace ? IdToken->AddressSpace : SCRIPT_ENGINE_ADDRESS_SPACE_LOCAL;
+                OffsetToken->AddressSpace = AddressSpace;
             }
 
             Push(MatchedStack, OffsetToken);
@@ -2934,6 +3096,30 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
                         SetGlobalIdentifierVariableType(Op1, VariableType);
                     }
                 }
+            }
+
+            if (Op0->VariableType && ((PVARIABLE_TYPE)Op0->VariableType)->Kind == TY_ARRAY)
+            {
+                PVARIABLE_TYPE DecayedType = CreatePointerType(((PVARIABLE_TYPE)Op0->VariableType)->Base);
+                if (!DecayedType)
+                {
+                    *Error = SCRIPT_ENGINE_ERROR_TEMP_LIST_FULL;
+                    break;
+                }
+                DecayedType->PointerProvenance = Op0->AddressSpace == SCRIPT_ENGINE_ADDRESS_SPACE_REMOTE ?
+                                                     POINTER_PROVENANCE_REMOTE : POINTER_PROVENANCE_LOCAL;
+                Op0->VariableType = DecayedType;
+                Op0->AddressSpace = DecayedType->PointerProvenance == POINTER_PROVENANCE_LOCAL ?
+                                        SCRIPT_ENGINE_ADDRESS_SPACE_LOCAL : SCRIPT_ENGINE_ADDRESS_SPACE_REMOTE;
+            }
+
+            if (Op1->IsImplicitType && Op0->IsSignedFunctionResult)
+            {
+                Op1->VariableType = VARIABLE_TYPE_LLONG;
+                if (Op1->Type == LOCAL_UNRESOLVED_ID || Op1->Type == LOCAL_ID)
+                    SetLocalIdentifierVariableType(Op1, VARIABLE_TYPE_LLONG);
+                else if (Op1->Type == GLOBAL_UNRESOLVED_ID || Op1->Type == GLOBAL_ID)
+                    SetGlobalIdentifierVariableType(Op1, VARIABLE_TYPE_LLONG);
             }
 
             if (Op0->VariableType && Op1->VariableType)
@@ -3154,299 +3340,274 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
         }
         else if (!strcmp(Operator->Value, "@DEREFERENCE"))
         {
-            PSYMBOL Symbol;
+            PVARIABLE_TYPE       PointerType;
+            PVARIABLE_TYPE       DestinationType;
+            PSCRIPT_ENGINE_TOKEN StoredValue;
+            UINT32               AddressSpace;
 
             Op0 = Pop(MatchedStack);
             Op1 = Pop(MatchedStack);
+            PointerType = ResolveIdentifierVariableType(Op1);
+            if (!PointerType)
+                PointerType = (PVARIABLE_TYPE)Op1->VariableType;
+            if (!PointerType || PointerType->Kind != TY_PTR || !PointerType->Base)
+            {
+                *Error = SCRIPT_ENGINE_ERROR_UNDEFINED_VARIABLE_TYPE;
+                break;
+            }
+            DestinationType = PointerType->Base;
+            if (DestinationType->Kind == TY_ARRAY || DestinationType->Kind == TY_STRUCT ||
+                (DestinationType->Size != 1 && DestinationType->Size != 2 &&
+                 DestinationType->Size != 4 && DestinationType->Size != 8))
+            {
+                *Error = SCRIPT_ENGINE_ERROR_UNDEFINED_VARIABLE_TYPE;
+                break;
+            }
 
-            if (Op1->Type == LOCAL_UNRESOLVED_ID)
+            StoredValue = EmitScalarCast(CodeBuffer, Op0, DestinationType, Error);
+            AddressSpace = GetStructPointerAddressSpace(PointerType, Op1);
+            if (!StoredValue || *Error != SCRIPT_ENGINE_ERROR_FREE)
+                break;
+            EmitTypedScalarStore(CodeBuffer,
+                                 StoredValue,
+                                 Op1,
+                                 AddressSpace,
+                                 (UINT32)DestinationType->Size,
+                                 Error);
+            if (StoredValue != Op0)
+            {
+                FreeTemp(StoredValue);
+                RemoveToken(&StoredValue);
+            }
+            FreeTemp(Op0);
+            FreeTemp(Op1);
+            RemoveToken(&Op0);
+            RemoveToken(&Op1);
+        }
+        else if (!strcmp(Operator->Value, "@ARRAY_DECLARITION"))
+        {
+            unsigned int           TokenCapacity = (unsigned int)MatchedStack->Pointer;
+            PSCRIPT_ENGINE_TOKEN * Tokens        = (PSCRIPT_ENGINE_TOKEN *)calloc(TokenCapacity, sizeof(*Tokens));
+            PSCRIPT_ENGINE_TOKEN * Values        = (PSCRIPT_ENGINE_TOKEN *)calloc(TokenCapacity, sizeof(*Values));
+            PSCRIPT_ENGINE_TOKEN   IdToken;
+            PSCRIPT_ENGINE_TOKEN   LiteralToken = NULL;
+            PVARIABLE_TYPE         ElementType;
+            PVARIABLE_TYPE         ArrayType;
+            unsigned int *         Dimensions         = (unsigned int *)calloc(TokenCapacity, sizeof(*Dimensions));
+            unsigned int           TokenCount         = 0;
+            unsigned int           ValueCount         = 0;
+            unsigned int           DimensionCount     = 0;
+            unsigned int           InitializerStart   = 0;
+            unsigned int           LiteralElementCount = 0;
+            unsigned int           TotalElementCount;
+            unsigned int           Index;
+            BOOLEAN                IsStringInitializer = FALSE;
+
+            if (!Tokens || !Values || !Dimensions)
+            {
+                free(Tokens);
+                free(Values);
+                free(Dimensions);
+                *Error = SCRIPT_ENGINE_ERROR_TEMP_LIST_FULL;
+                break;
+            }
+
+            while (MatchedStack->Pointer)
+            {
+                Temp = Pop(MatchedStack);
+                if (!strcmp(Temp->Value, "@ARRAY_L_VALUE"))
+                {
+                    RemoveToken(&Temp);
+                    break;
+                }
+                if (TokenCount >= TokenCapacity)
+                {
+                    RemoveToken(&Temp);
+                    *Error = SCRIPT_ENGINE_ERROR_SYNTAX;
+                    break;
+                }
+                Tokens[TokenCount++] = Temp;
+            }
+            if (*Error != SCRIPT_ENGINE_ERROR_FREE || !MatchedStack->Pointer)
             {
                 *Error = SCRIPT_ENGINE_ERROR_SYNTAX;
                 break;
             }
 
-            if (((VARIABLE_TYPE *)Op1->VariableType)->Size == 4)
+            for (Index = 0; Index < TokenCount / 2; Index++)
             {
-                Symbol        = NewSymbol();
-                Symbol->Type  = SYMBOL_SEMANTIC_RULE_TYPE;
-                Symbol->Value = FUNC_ED;
-
-                Op0Symbol = ToSymbol(Op0, Error);
-                Op1Symbol = ToSymbol(Op1, Error);
-
-                Temp       = NewTemp(Error);
-                TempSymbol = ToSymbol(Temp, Error);
-
-                PushSymbol(CodeBuffer, Symbol);
-                PushSymbol(CodeBuffer, Op0Symbol);
-                PushSymbol(CodeBuffer, Op1Symbol);
-                PushSymbol(CodeBuffer, TempSymbol);
-                FreeTemp(Temp);
-            }
-            else if (((VARIABLE_TYPE *)Op1->VariableType)->Size == 8)
-            {
-                Symbol        = NewSymbol();
-                Symbol->Type  = SYMBOL_SEMANTIC_RULE_TYPE;
-                Symbol->Value = FUNC_EQ;
-
-                Op0Symbol = ToSymbol(Op0, Error);
-                Op1Symbol = ToSymbol(Op1, Error);
-
-                Temp       = NewTemp(Error);
-                TempSymbol = ToSymbol(Temp, Error);
-
-                PushSymbol(CodeBuffer, Symbol);
-                PushSymbol(CodeBuffer, Op0Symbol);
-                PushSymbol(CodeBuffer, Op1Symbol);
-                PushSymbol(CodeBuffer, TempSymbol);
-                FreeTemp(Temp);
-            }
-
-            else if (((VARIABLE_TYPE *)Op1->VariableType)->Size == 1)
-            {
-                Symbol        = NewSymbol();
-                Symbol->Type  = SYMBOL_SEMANTIC_RULE_TYPE;
-                Symbol->Value = FUNC_EB;
-
-                Op0Symbol = ToSymbol(Op0, Error);
-                Op1Symbol = ToSymbol(Op1, Error);
-
-                Temp       = NewTemp(Error);
-                TempSymbol = ToSymbol(Temp, Error);
-
-                PushSymbol(CodeBuffer, Symbol);
-                PushSymbol(CodeBuffer, Op0Symbol);
-                PushSymbol(CodeBuffer, Op1Symbol);
-                PushSymbol(CodeBuffer, TempSymbol);
-                FreeTemp(Temp);
-            }
-        }
-        else if (!strcmp(Operator->Value, "@ARRAY_DECLARITION"))
-        {
-            int                    TokenCapacity = 8;
-            int                    TokenCount    = 0;
-            PSCRIPT_ENGINE_TOKEN * TokenArray    = (PSCRIPT_ENGINE_TOKEN *)malloc(sizeof(PSCRIPT_ENGINE_TOKEN) * TokenCapacity);
-            PSCRIPT_ENGINE_TOKEN   IdToken       = NULL;
-            PSYMBOL                IdSymbol      = NewSymbol();
-            ;
-            VARIABLE_TYPE * VariableType2             = NULL;
-            int             Last_ARRAY_DIM_NUMBER_Idx = 0;
-            int             ArrayElementCount         = 0;
-            PSYMBOL         Symbol                    = NULL;
-            int             BaseTypeSize              = 0;
-
-            for (int i = MatchedStack->Pointer; i > 0; i--)
-            {
-                Temp = Pop(MatchedStack);
-                if (!strcmp(Temp->Value, "@ARRAY_L_VALUE"))
-                {
-                    break;
-                }
-
-                if (TokenCount >= TokenCapacity)
-                {
-                    TokenCapacity *= 2;
-                    TokenArray = (PSCRIPT_ENGINE_TOKEN *)realloc(TokenArray, sizeof(PSCRIPT_ENGINE_TOKEN) * TokenCapacity);
-                }
-                TokenArray[TokenCount++] = Temp;
-            }
-
-            for (SIZE_T i = 0; i < TokenCount / 2; i++)
-            {
-                PSCRIPT_ENGINE_TOKEN tmp       = TokenArray[i];
-                TokenArray[i]                  = TokenArray[TokenCount - i - 1];
-                TokenArray[TokenCount - i - 1] = tmp;
+                PSCRIPT_ENGINE_TOKEN Swap = Tokens[Index];
+                Tokens[Index]              = Tokens[TokenCount - Index - 1];
+                Tokens[TokenCount - Index - 1] = Swap;
             }
 
             IdToken = Pop(MatchedStack);
-
-            if (MatchedStack->Pointer > 0)
+            ElementType = MatchedStack->Pointer && Top(MatchedStack)->Type == SCRIPT_VARIABLE_TYPE ?
+                              HandleType(MatchedStack) : GetDefaultImplicitVariableType();
+            if (!ElementType || ElementType->Kind == TY_UNKNOWN)
             {
-                if (Top(MatchedStack)->Type == SCRIPT_VARIABLE_TYPE)
-                {
-                    VariableType = HandleType(MatchedStack);
+                *Error = SCRIPT_ENGINE_ERROR_UNDEFINED_VARIABLE_TYPE;
+                break;
+            }
 
-                    if (VariableType->Kind == TY_UNKNOWN)
+            for (Index = 0; Index < TokenCount; Index++)
+            {
+                if (!strcmp(Tokens[Index]->Value, "@ARRAY_DIM_NUMBER"))
+                {
+                    if (!Index || DimensionCount >= TokenCapacity)
                     {
-                        *Error = SCRIPT_ENGINE_ERROR_UNDEFINED_VARIABLE_TYPE;
+                        *Error = SCRIPT_ENGINE_ERROR_INVALID_ARRAY_SIZE;
                         break;
                     }
+                    Dimensions[DimensionCount++] = (unsigned int)DecimalToInt(Tokens[Index - 1]->Value);
+                    InitializerStart = Index + 1;
                 }
             }
+            if (*Error != SCRIPT_ENGINE_ERROR_FREE)
+                break;
 
-            if (!VariableType)
+            for (Index = InitializerStart; Index < TokenCount; Index++)
             {
-                VariableType = GetDefaultImplicitVariableType();
-            }
-
-            BaseTypeSize = VariableType->Size;
-
-            for (int i = TokenCount - 1; i >= 0; i--)
-            {
-                if (!strcmp(TokenArray[i]->Value, "@ARRAY_DIM_NUMBER"))
+                if (Tokens[Index]->Type == STRING || Tokens[Index]->Type == WSTRING)
                 {
-                    Last_ARRAY_DIM_NUMBER_Idx = i;
-                    break;
-                }
-            }
-
-            for (int i = Last_ARRAY_DIM_NUMBER_Idx; i >= 0; i--)
-            {
-                if (!strcmp(TokenArray[i]->Value, "@ARRAY_DIM_NUMBER"))
-                {
-                    VariableType2           = calloc(1, sizeof(VARIABLE_TYPE));
-                    VariableType2->Kind     = TY_ARRAY;
-                    VariableType2->Size     = VariableType->Size * atoi(TokenArray[i - 1]->Value);
-                    VariableType2->Align    = VariableType->Align;
-                    VariableType2->Base     = VariableType;
-                    VariableType2->ArrayLen = atoi(TokenArray[i - 1]->Value);
-                    VariableType            = VariableType2;
-                    i--;
-                }
-            }
-
-            if (IdToken->Type == LOCAL_UNRESOLVED_ID)
-            {
-                IdSymbol->Value = NewLocalIdentifier(IdToken, VariableType->Size);
-                SetType(&IdSymbol->Type, SYMBOL_REFERENCE_LOCAL_ID_TYPE);
-                SetLocalIdentifierVariableType(IdToken, VariableType);
-            }
-
-            for (int i = Last_ARRAY_DIM_NUMBER_Idx + 1; i < TokenCount; i++)
-            {
-                if (TokenArray[i]->Type != SEMANTIC_RULE)
-                {
-                    if ((ArrayElementCount * BaseTypeSize) > VariableType->Size)
+                    if (LiteralToken || ValueCount)
                     {
                         *Error = SCRIPT_ENGINE_ERROR_SYNTAX;
                         break;
                     }
-
-                    Symbol        = NewSymbol();
-                    Symbol->Type  = SYMBOL_SEMANTIC_RULE_TYPE;
-                    Symbol->Value = FUNC_MUL;
-                    PushSymbol(CodeBuffer, Symbol);
-
-                    Symbol        = NewSymbol();
-                    Symbol->Type  = SYMBOL_NUM_TYPE;
-                    Symbol->Value = BaseTypeSize;
-                    PushSymbol(CodeBuffer, Symbol);
-
-                    Symbol        = NewSymbol();
-                    Symbol->Type  = SYMBOL_NUM_TYPE;
-                    Symbol->Value = ArrayElementCount;
-                    PushSymbol(CodeBuffer, Symbol);
-
-                    Temp       = NewTemp(Error);
-                    TempSymbol = ToSymbol(Temp, Error);
-                    PushSymbol(CodeBuffer, TempSymbol);
-
-                    Symbol        = NewSymbol();
-                    Symbol->Type  = SYMBOL_SEMANTIC_RULE_TYPE;
-                    Symbol->Value = FUNC_ADD;
-
-                    PushSymbol(CodeBuffer, Symbol);
-                    PushSymbol(CodeBuffer, IdSymbol);
-                    PushSymbol(CodeBuffer, TempSymbol);
-                    PushSymbol(CodeBuffer, TempSymbol);
-
-                    Symbol       = NewSymbol();
-                    Symbol->Type = SYMBOL_SEMANTIC_RULE_TYPE;
-
-                    if (BaseTypeSize == 4)
-                    {
-                        Symbol->Value = FUNC_ED;
-                    }
-                    else if (BaseTypeSize == 8)
-                    {
-                        Symbol->Value = FUNC_EQ;
-                    }
-                    else if (BaseTypeSize == 1)
-                    {
-                        Symbol->Value = FUNC_EB;
-                    }
-
-                    PushSymbol(CodeBuffer, Symbol);
-
-                    Symbol = ToSymbol(TokenArray[i], Error);
-                    PushSymbol(CodeBuffer, Symbol);
-
-                    PushSymbol(CodeBuffer, TempSymbol);
-
-                    PushSymbol(CodeBuffer, TempSymbol);
-
-                    FreeTemp(Temp);
-
-                    ArrayElementCount++;
+                    LiteralToken = Tokens[Index];
+                    IsStringInitializer = TRUE;
+                }
+                else if (Tokens[Index]->Type != SEMANTIC_RULE)
+                {
+                    if (Index + 1 < TokenCount && !strcmp(Tokens[Index + 1]->Value, "@ARRAY_DIM_NUMBER"))
+                        continue;
+                    Values[ValueCount++] = Tokens[Index];
                 }
             }
-
             if (*Error != SCRIPT_ENGINE_ERROR_FREE)
+                break;
+
+            if (IsStringInitializer)
             {
+                if (DimensionCount > 1 ||
+                    (ElementType != VARIABLE_TYPE_CHAR && ElementType != VARIABLE_TYPE_WCHAR) ||
+                    (LiteralToken->Type == STRING && ElementType != VARIABLE_TYPE_CHAR) ||
+                    (LiteralToken->Type == WSTRING && ElementType != VARIABLE_TYPE_WCHAR))
+                {
+                    *Error = SCRIPT_ENGINE_ERROR_UNDEFINED_VARIABLE_TYPE;
+                    break;
+                }
+                LiteralElementCount = LiteralToken->Len / (unsigned int)ElementType->Size;
+            }
+
+            if (!DimensionCount)
+            {
+                unsigned int InferredCount = IsStringInitializer ? LiteralElementCount : ValueCount;
+                if (!InferredCount)
+                {
+                    *Error = SCRIPT_ENGINE_ERROR_INVALID_ARRAY_SIZE;
+                    break;
+                }
+                Dimensions[DimensionCount++] = InferredCount;
+            }
+
+            ArrayType = ElementType;
+            for (Index = DimensionCount; Index > 0; Index--)
+            {
+                ArrayType = CreateArrayType(ArrayType, Dimensions[Index - 1]);
+                if (!ArrayType)
+                {
+                    *Error = SCRIPT_ENGINE_ERROR_INVALID_ARRAY_SIZE;
+                    break;
+                }
+            }
+            if (*Error != SCRIPT_ENGINE_ERROR_FREE)
+                break;
+
+            TotalElementCount = (unsigned int)ArrayType->Size / (unsigned int)ElementType->Size;
+            if ((IsStringInitializer && LiteralElementCount > TotalElementCount) ||
+                (!IsStringInitializer && ValueCount > TotalElementCount))
+            {
+                *Error = SCRIPT_ENGINE_ERROR_INVALID_ARRAY_SIZE;
+                break;
+            }
+            if (IdToken->Type != LOCAL_UNRESOLVED_ID)
+            {
+                *Error = SCRIPT_ENGINE_ERROR_SYNTAX;
                 break;
             }
 
-            while ((ArrayElementCount * BaseTypeSize) < VariableType->Size)
+            NewLocalIdentifier(IdToken, ArrayType->Size);
+            SetLocalIdentifierVariableType(IdToken, ArrayType);
+            IdToken->Type         = LOCAL_ID;
+            IdToken->VariableType = ArrayType;
+            IdToken->AddressSpace = SCRIPT_ENGINE_ADDRESS_SPACE_LOCAL;
+            EmitAggregateZero(CodeBuffer,
+                              IdToken,
+                              SCRIPT_ENGINE_ADDRESS_SPACE_LOCAL,
+                              (UINT64)ArrayType->Size,
+                              Error);
+
+            for (Index = 0; Index < (IsStringInitializer ? LiteralElementCount : ValueCount); Index++)
             {
-                Symbol        = NewSymbol();
-                Symbol->Type  = SYMBOL_SEMANTIC_RULE_TYPE;
-                Symbol->Value = FUNC_MUL;
-                PushSymbol(CodeBuffer, Symbol);
+                PSCRIPT_ENGINE_TOKEN ValueToken;
+                PSCRIPT_ENGINE_TOKEN StoredValue;
+                PSCRIPT_ENGINE_TOKEN AddressToken;
+                BOOLEAN              OwnsValueToken = FALSE;
+                CHAR                 ValueText[32];
 
-                Symbol        = NewSymbol();
-                Symbol->Type  = SYMBOL_NUM_TYPE;
-                Symbol->Value = BaseTypeSize;
-                PushSymbol(CodeBuffer, Symbol);
-
-                Symbol        = NewSymbol();
-                Symbol->Type  = SYMBOL_NUM_TYPE;
-                Symbol->Value = ArrayElementCount;
-                PushSymbol(CodeBuffer, Symbol);
-
-                Temp       = NewTemp(Error);
-                TempSymbol = ToSymbol(Temp, Error);
-                PushSymbol(CodeBuffer, TempSymbol);
-
-                Symbol        = NewSymbol();
-                Symbol->Type  = SYMBOL_SEMANTIC_RULE_TYPE;
-                Symbol->Value = FUNC_ADD;
-
-                PushSymbol(CodeBuffer, Symbol);
-                PushSymbol(CodeBuffer, IdSymbol);
-                PushSymbol(CodeBuffer, TempSymbol);
-                PushSymbol(CodeBuffer, TempSymbol);
-
-                Symbol       = NewSymbol();
-                Symbol->Type = SYMBOL_SEMANTIC_RULE_TYPE;
-
-                if (BaseTypeSize == 4)
+                if (IsStringInitializer)
                 {
-                    Symbol->Value = FUNC_ED;
+                    UINT64 LiteralValue = 0;
+                    if (ElementType->Size == 1)
+                        LiteralValue = (UINT8)LiteralToken->Value[Index];
+                    else
+                        memcpy(&LiteralValue, LiteralToken->Value + Index * 2, 2);
+                    PlatformSnprintf(ValueText, sizeof(ValueText), "%llx", LiteralValue);
+                    ValueToken               = NewToken(HEX, ValueText);
+                    ValueToken->VariableType = ElementType;
+                    OwnsValueToken           = TRUE;
                 }
-                else if (BaseTypeSize == 8)
+                else
                 {
-                    Symbol->Value = FUNC_EQ;
-                }
-                else if (BaseTypeSize == 1)
-                {
-                    Symbol->Value = FUNC_EB;
+                    ValueToken = Values[Index];
                 }
 
-                PushSymbol(CodeBuffer, Symbol);
-
-                Symbol = Symbol = NewSymbol();
-                Symbol->Type    = SYMBOL_NUM_TYPE;
-                Symbol->Value   = 0;
-                PushSymbol(CodeBuffer, Symbol);
-
-                PushSymbol(CodeBuffer, TempSymbol);
-
-                PushSymbol(CodeBuffer, TempSymbol);
-
-                FreeTemp(Temp);
-
-                ArrayElementCount++;
+                StoredValue = EmitScalarCast(CodeBuffer, ValueToken, ElementType, Error);
+                AddressToken = EmitLocalElementAddress(CodeBuffer,
+                                                       IdToken,
+                                                       ElementType,
+                                                       (UINT64)Index * (UINT64)ElementType->Size,
+                                                       Error);
+                if (!StoredValue || !AddressToken || *Error != SCRIPT_ENGINE_ERROR_FREE)
+                    break;
+                EmitTypedScalarStore(CodeBuffer,
+                                     StoredValue,
+                                     AddressToken,
+                                     SCRIPT_ENGINE_ADDRESS_SPACE_LOCAL,
+                                     (UINT32)ElementType->Size,
+                                     Error);
+                if (StoredValue != ValueToken)
+                {
+                    FreeTemp(StoredValue);
+                    RemoveToken(&StoredValue);
+                }
+                FreeTemp(AddressToken);
+                RemoveToken(&AddressToken);
+                if (OwnsValueToken)
+                    RemoveToken(&ValueToken);
             }
+
+            for (Index = 0; Index < TokenCount; Index++)
+            {
+                FreeTemp(Tokens[Index]);
+                RemoveToken(&Tokens[Index]);
+            }
+            RemoveToken(&IdToken);
+            free(Tokens);
+            free(Values);
+            free(Dimensions);
         }
         else if (IsType2Func(Operator))
         {
@@ -3533,6 +3694,40 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
             RemoveSymbol(&MoveSymbol);
             FreeTemp(Op0);
             Push(MatchedStack, Temp);
+        }
+        else if (!strcmp(Operator->Value, "@POI") &&
+                 MatchedStack->Pointer &&
+                 ResolveIdentifierVariableType(Top(MatchedStack)) &&
+                 ((PVARIABLE_TYPE)Top(MatchedStack)->VariableType)->Kind == TY_PTR)
+        {
+            PVARIABLE_TYPE       PointerType;
+            PSCRIPT_ENGINE_TOKEN LoadedValue;
+            UINT32               AddressSpace;
+
+            Op0        = Pop(MatchedStack);
+            PointerType = ResolveIdentifierVariableType(Op0);
+            if (!PointerType)
+                PointerType = (PVARIABLE_TYPE)Op0->VariableType;
+            if (!PointerType || PointerType->Kind != TY_PTR || !PointerType->Base ||
+                PointerType->Base->Kind == TY_VOID || PointerType->Base->Kind == TY_ARRAY ||
+                (PointerType->Base->Size != 1 && PointerType->Base->Size != 2 &&
+                 PointerType->Base->Size != 4 && PointerType->Base->Size != 8))
+            {
+                *Error = SCRIPT_ENGINE_ERROR_UNDEFINED_VARIABLE_TYPE;
+                RemoveToken(&Op0);
+                break;
+            }
+            AddressSpace = GetStructPointerAddressSpace(PointerType, Op0);
+            LoadedValue  = EmitTypedScalarLoad(CodeBuffer,
+                                               Op0,
+                                               AddressSpace,
+                                               PointerType->Base,
+                                               Error);
+            FreeTemp(Op0);
+            RemoveToken(&Op0);
+            if (!LoadedValue || *Error != SCRIPT_ENGINE_ERROR_FREE)
+                break;
+            Push(MatchedStack, LoadedValue);
         }
         else if (IsType1Func(Operator))
         {
@@ -5349,7 +5544,8 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
             }
 
             Temp               = NewTemp(Error);
-            Temp->VariableType = GetDefaultImplicitVariableType();
+            Temp->VariableType = VARIABLE_TYPE_INT;
+            Temp->IsSignedFunctionResult = TRUE;
             Push(MatchedStack, Temp);
             TempSymbol = ToSymbol(Temp, Error);
             PushSymbol(CodeBuffer, TempSymbol);
@@ -5377,7 +5573,8 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
             PushSymbol(CodeBuffer, Op2Symbol);
 
             Temp               = NewTemp(Error);
-            Temp->VariableType = GetDefaultImplicitVariableType();
+            Temp->VariableType = VARIABLE_TYPE_INT;
+            Temp->IsSignedFunctionResult = TRUE;
             Push(MatchedStack, Temp);
             TempSymbol = ToSymbol(Temp, Error);
             PushSymbol(CodeBuffer, TempSymbol);
@@ -5430,7 +5627,8 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
             }
 
             Temp               = NewTemp(Error);
-            Temp->VariableType = GetDefaultImplicitVariableType();
+            Temp->VariableType = VARIABLE_TYPE_INT;
+            Temp->IsSignedFunctionResult = TRUE;
             Push(MatchedStack, Temp);
             TempSymbol = ToSymbol(Temp, Error);
             PushSymbol(CodeBuffer, TempSymbol);
@@ -5459,7 +5657,8 @@ CodeGen(PSCRIPT_ENGINE_TOKEN_LIST MatchedStack, PSYMBOL_BUFFER CodeBuffer, PSCRI
             PushSymbol(CodeBuffer, Op2Symbol);
 
             Temp               = NewTemp(Error);
-            Temp->VariableType = GetDefaultImplicitVariableType();
+            Temp->VariableType = VARIABLE_TYPE_INT;
+            Temp->IsSignedFunctionResult = TRUE;
             Push(MatchedStack, Temp);
             TempSymbol = ToSymbol(Temp, Error);
             PushSymbol(CodeBuffer, TempSymbol);

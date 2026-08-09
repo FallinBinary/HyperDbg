@@ -777,16 +777,17 @@ ScriptEngineFunctionDisassembleLen(PVOID Address, BOOLEAN Is32Bit)
  * @return UINT64
  */
 UINT64
-ScriptEngineFunctionWcslen(const wchar_t * Address)
+ScriptEngineFunctionWcslen(const UINT16 * Address)
 {
     UINT64 Result = 0;
 
 #ifdef SCRIPT_ENGINE_USER_MODE
-    Result = wcslen(Address);
+    while (Address[Result] != 0)
+        Result++;
 #endif // SCRIPT_ENGINE_USER_MODE
 
 #ifdef SCRIPT_ENGINE_KERNEL_MODE
-    Result = VmFuncVmxCompatibleWcslen(Address);
+    Result = VmFuncVmxCompatibleWcslen((const WCHAR *)Address);
 #endif // SCRIPT_ENGINE_KERNEL_MODE
 
     return Result;
@@ -1248,7 +1249,11 @@ CustomStrlen(UINT64 StrAddr, BOOLEAN IsWstring)
 
     if (IsWstring)
     {
-        return (UINT32)wcslen((const wchar_t *)StrAddr);
+        const UINT16 * String = (const UINT16 *)StrAddr;
+        UINT32         Length = 0;
+        while (String[Length] != 0)
+            Length++;
+        return Length;
     }
     else
     {
@@ -1259,7 +1264,7 @@ CustomStrlen(UINT64 StrAddr, BOOLEAN IsWstring)
 #ifdef SCRIPT_ENGINE_KERNEL_MODE
     if (IsWstring)
     {
-        return VmFuncVmxCompatibleWcslen((const wchar_t *)StrAddr);
+        return VmFuncVmxCompatibleWcslen((const WCHAR *)StrAddr);
     }
     else
     {

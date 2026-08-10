@@ -10,12 +10,237 @@
  *
  */
 #include "pch.h"
+#include <filesystem>
+#include <mutex>
+#include <regex>
+#include <set>
+
+namespace fs = std::filesystem;
 
 //
 // Global Variables
 //
 extern BOOLEAN g_IsKdModuleLoaded;
 extern BOOLEAN g_IsSerialConnectedToRemoteDebuggee;
+extern BOOLEAN g_CurrentExprEvalResultHasError;
+
+struct CLI_SEMANTIC_EXPECTATION
+{
+    std::set<UINT32> Cases;
+    std::set<std::string> Markers;
+};
+
+struct CLI_SEMANTIC_RESULT
+{
+    fs::path File;
+    BOOLEAN Passed = FALSE;
+    std::string Diagnostic;
+    std::string Output;
+    SIZE_T ExpectationCount = 0;
+    UINT64 DurationMilliseconds = 0;
+};
+
+static std::mutex g_CliSemanticOutputMutex;
+static std::string g_CliSemanticOutput;
+
+static VOID
+CommandTestCaptureSemanticOutput(CHAR * Message)
+{
+    if (!Message) return;
+    std::lock_guard<std::mutex> Lock(g_CliSemanticOutputMutex);
+    g_CliSemanticOutput.append(Message);
+}
+
+static std::string
+CommandTestLowerAscii(std::string Value)
+{
+    std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char Character) {
+        return (CHAR)std::tolower(Character);
+    });
+    return Value;
+}
+
+static BOOLEAN
+CommandTestParseSemanticFile(const fs::path & FilePath,
+                             std::string & Expression,
+                             CLI_SEMANTIC_EXPECTATION & Expectation,
+                             std::string & Error)
+{
+    std::ifstream File(FilePath, std::ios::binary);
+    if (!File) { Error = "could not open file"; return FALSE; }
+    std::string Content((std::istreambuf_iterator<char>(File)), std::istreambuf_iterator<char>());
+    if (File.bad()) { Error = "could not read file"; return FALSE; }
+
+    Expectation = {};
+    const std::regex CasePattern("test_case([0-9]+)[[:space:]]*=[[:space:]]*1");
+    const std::regex MarkerPattern("//[[:space:]]*semantic-test-marker:[[:space:]]*([^\\r\\n]+)");
+    for (std::sregex_iterator Match(Content.begin(), Content.end(), CasePattern), End; Match != End; ++Match)
+        Expectation.Cases.insert((UINT32)std::stoul((*Match)[1].str()));
+    for (std::sregex_iterator Match(Content.begin(), Content.end(), MarkerPattern), End; Match != End; ++Match)
+    {
+        std::string Marker = (*Match)[1].str();
+        while (!Marker.empty() && std::isspace((unsigned char)Marker.back())) Marker.pop_back();
+        if (!Marker.empty()) Expectation.Markers.insert(Marker);
+    }
+    if (Expectation.Cases.empty() && Expectation.Markers.empty())
+    {
+        Error = "no enabled numbered case or semantic-test-marker";
+        return FALSE;
+    }
+
+    SIZE_T CommandStart = std::string::npos;
+    for (SIZE_T LineStart = 0; LineStart < Content.size();)
+    {
+        SIZE_T LineEnd = Content.find('\n', LineStart);
+        SIZE_T First = Content.find_first_not_of(" \t\r", LineStart);
+        if (First != std::string::npos && (LineEnd == std::string::npos || First < LineEnd) && Content[First] == '?')
+        {
+            CommandStart = First;
+            break;
+        }
+        if (LineEnd == std::string::npos) break;
+        LineStart = LineEnd + 1;
+    }
+    if (CommandStart == std::string::npos) { Error = "semantic script has no '?' command"; return FALSE; }
+    SIZE_T ExpressionStart = Content.find_first_not_of(" \t\r\n", CommandStart + 1);
+    if (ExpressionStart == std::string::npos) { Error = "semantic script has no expression"; return FALSE; }
+    Expression.assign(Content, ExpressionStart, std::string::npos);
+    return TRUE;
+}
+
+static BOOLEAN
+CommandTestHasSemanticFailure(const std::string & Output)
+{
+    std::istringstream Lines(Output);
+    std::string Line;
+    while (std::getline(Lines, Line))
+    {
+        std::string Lower = CommandTestLowerAscii(Line);
+        SIZE_T First = Lower.find_first_not_of(" \t\r");
+        if (First == std::string::npos) continue;
+        Lower.erase(0, First);
+        if (Lower.find("was failed") != std::string::npos || Lower.rfind("err,", 0) == 0 ||
+            Lower.rfind("error:", 0) == 0 || Lower.rfind("[x]", 0) == 0) return TRUE;
+    }
+    return FALSE;
+}
+
+static BOOLEAN
+CommandTestHasExpectedSemanticOutput(const CLI_SEMANTIC_EXPECTATION & Expectation,
+                                     const std::string & Output,
+                                     std::string & Missing)
+{
+    if (CommandTestHasSemanticFailure(Output)) return FALSE;
+    std::set<UINT32> SuccessfulCases;
+    const std::regex Pattern("test case ([0-9]+) was successful");
+    std::istringstream Lines(Output);
+    std::string Line;
+    while (std::getline(Lines, Line))
+    {
+        if (!Line.empty() && Line.back() == '\r') Line.pop_back();
+        std::smatch Match;
+        if (std::regex_match(Line, Match, Pattern)) SuccessfulCases.insert((UINT32)std::stoul(Match[1].str()));
+    }
+    for (UINT32 Case : Expectation.Cases)
+    {
+        if (!SuccessfulCases.contains(Case))
+        {
+            Missing = "missing test case " + std::to_string(Case) + " success output";
+            return FALSE;
+        }
+    }
+    for (const std::string & Marker : Expectation.Markers)
+    {
+        if (Output.find(Marker) == std::string::npos)
+        {
+            Missing = "missing semantic marker: " + Marker;
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
+static VOID
+CommandTestScriptSemantic()
+{
+    CHAR Directory[MAX_PATH] = {0};
+    if (!SetupPathForFileName(SCRIPT_SEMANTIC_TEST_CASE_DIRECTORY, Directory, sizeof(Directory), FALSE))
+    {
+        ShowMessages("err, could not resolve the semantic test directory\n");
+        return;
+    }
+
+    std::vector<fs::path> Files;
+    try
+    {
+        for (const fs::directory_entry & Entry : fs::directory_iterator(Directory))
+            if (Entry.is_regular_file() && CommandTestLowerAscii(Entry.path().extension().string()) == ".ds")
+                Files.push_back(Entry.path());
+        std::sort(Files.begin(), Files.end(), [](const fs::path & Left, const fs::path & Right) {
+            std::string L = CommandTestLowerAscii(Left.filename().string());
+            std::string R = CommandTestLowerAscii(Right.filename().string());
+            return L == R ? Left.filename().string() < Right.filename().string() : L < R;
+        });
+    }
+    catch (const fs::filesystem_error & Exception)
+    {
+        ShowMessages("err, could not enumerate semantic tests: %s\n", Exception.what());
+        return;
+    }
+    if (Files.empty()) { ShowMessages("err, no semantic .ds files were found in: %s\n", Directory); return; }
+
+    std::vector<CLI_SEMANTIC_RESULT> Results;
+    for (const fs::path & File : Files)
+    {
+        ShowMessages("[ RUN      ] %s\n", File.filename().string().c_str());
+        CLI_SEMANTIC_RESULT Result;
+        Result.File = File;
+        CLI_SEMANTIC_EXPECTATION Expectation;
+        std::string Expression;
+        auto Started = std::chrono::steady_clock::now();
+        if (CommandTestParseSemanticFile(File, Expression, Expectation, Result.Diagnostic))
+        {
+            Result.ExpectationCount = Expectation.Cases.size() + Expectation.Markers.size();
+            {
+                std::lock_guard<std::mutex> Lock(g_CliSemanticOutputMutex);
+                g_CliSemanticOutput.clear();
+            }
+            SetTextMessageCallback((PVOID)CommandTestCaptureSemanticOutput);
+            ScriptEngineWrapperTestParser(Expression);
+            UnsetTextMessageCallback();
+            {
+                std::lock_guard<std::mutex> Lock(g_CliSemanticOutputMutex);
+                Result.Output = g_CliSemanticOutput;
+            }
+            if (g_CurrentExprEvalResultHasError) Result.Diagnostic = "local script evaluator reported an error";
+            else if (CommandTestHasSemanticFailure(Result.Output)) Result.Diagnostic = "semantic failure output was reported";
+            else Result.Passed = CommandTestHasExpectedSemanticOutput(Expectation, Result.Output, Result.Diagnostic);
+        }
+        Result.DurationMilliseconds = (UINT64)std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - Started).count();
+        std::string PassDetails = Result.Passed ? std::to_string(Result.ExpectationCount) + " expectations, " : "";
+        ShowMessages("[%s] %s (%s%llu ms)%s%s\n", Result.Passed ? "       OK " : "  FAILED  ",
+                     File.filename().string().c_str(), PassDetails.c_str(), Result.DurationMilliseconds,
+                     Result.Diagnostic.empty() ? "" : " - ", Result.Diagnostic.c_str());
+        Results.push_back(std::move(Result));
+    }
+
+    SIZE_T Passed = std::count_if(Results.begin(), Results.end(), [](const CLI_SEMANTIC_RESULT & Result) { return Result.Passed; });
+    ShowMessages("\nSemantic script suite: %llu files, %llu passed, %llu failed\n",
+                 (UINT64)Results.size(), (UINT64)Passed, (UINT64)(Results.size() - Passed));
+    if (Passed != Results.size())
+    {
+        ShowMessages("Failed files:\n");
+        for (const CLI_SEMANTIC_RESULT & Result : Results)
+        {
+            if (Result.Passed) continue;
+            ShowMessages("  %s\n    %s\n", Result.File.filename().string().c_str(), Result.Diagnostic.c_str());
+            if (!Result.Output.empty())
+                ShowMessages("----- captured output -----\n%s%s----- end captured output -----\n",
+                             Result.Output.c_str(), Result.Output.back() == '\n' ? "" : "\n");
+        }
+    }
+}
 
 /**
  * @brief help of the test command
@@ -39,6 +264,7 @@ CommandTestHelp()
     ShowMessages("\t\te.g : test breakpoint off\n");
     ShowMessages("\t\te.g : test trap on\n");
     ShowMessages("\t\te.g : test trap off\n");
+    ShowMessages("\t\te.g : test script-semantic\n");
 }
 
 /**
@@ -549,6 +775,10 @@ CommandTest(vector<CommandToken> CommandTokens, string Command)
         // For testing functionalities
         //
         CommandTestAllFunctionalities();
+    }
+    else if (CommandSize == 2 && CompareLowerCaseStrings(CommandTokens.at(1), "script-semantic"))
+    {
+        CommandTestScriptSemantic();
     }
     else if (CommandSize == 2 && CompareLowerCaseStrings(CommandTokens.at(1), "hwdbg"))
     {

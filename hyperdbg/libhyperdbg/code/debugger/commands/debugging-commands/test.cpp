@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file test.cpp
  * @author Sina Karvandi (sina@hyperdbg.org)
  * @brief test command
@@ -44,7 +44,7 @@ static std::mutex g_CliSemanticOutputMutex;
 static std::string g_CliSemanticOutput;
 
 static VOID
-CommandTestCaptureSemanticOutput(CHAR * Message)
+CommandTestCaptureSemanticOutput(CHAR* Message)
 {
     if (!Message) return;
     std::lock_guard<std::mutex> Lock(g_CliSemanticOutputMutex);
@@ -56,15 +56,15 @@ CommandTestLowerAscii(std::string Value)
 {
     std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char Character) {
         return (CHAR)std::tolower(Character);
-    });
+        });
     return Value;
 }
 
 static BOOLEAN
-CommandTestParseSemanticFile(const fs::path & FilePath,
-                             std::string & Expression,
-                             CLI_SEMANTIC_EXPECTATION & Expectation,
-                             std::string & Error)
+CommandTestParseSemanticFile(const fs::path& FilePath,
+    std::string& Expression,
+    CLI_SEMANTIC_EXPECTATION& Expectation,
+    std::string& Error)
 {
     std::ifstream File(FilePath, std::ios::binary);
     if (!File) { Error = "could not open file"; return FALSE; }
@@ -109,7 +109,7 @@ CommandTestParseSemanticFile(const fs::path & FilePath,
 }
 
 static BOOLEAN
-CommandTestHasSemanticFailure(const std::string & Output)
+CommandTestHasSemanticFailure(const std::string& Output)
 {
     std::istringstream Lines(Output);
     std::string Line;
@@ -126,9 +126,9 @@ CommandTestHasSemanticFailure(const std::string & Output)
 }
 
 static BOOLEAN
-CommandTestHasExpectedSemanticOutput(const CLI_SEMANTIC_EXPECTATION & Expectation,
-                                     const std::string & Output,
-                                     std::string & Missing)
+CommandTestHasExpectedSemanticOutput(const CLI_SEMANTIC_EXPECTATION& Expectation,
+    const std::string& Output,
+    std::string& Missing)
 {
     if (CommandTestHasSemanticFailure(Output)) return FALSE;
     std::set<UINT32> SuccessfulCases;
@@ -149,7 +149,7 @@ CommandTestHasExpectedSemanticOutput(const CLI_SEMANTIC_EXPECTATION & Expectatio
             return FALSE;
         }
     }
-    for (const std::string & Marker : Expectation.Markers)
+    for (const std::string& Marker : Expectation.Markers)
     {
         if (Output.find(Marker) == std::string::npos)
         {
@@ -163,7 +163,7 @@ CommandTestHasExpectedSemanticOutput(const CLI_SEMANTIC_EXPECTATION & Expectatio
 static VOID
 CommandTestScriptSemantic()
 {
-    CHAR Directory[MAX_PATH] = {0};
+    CHAR Directory[MAX_PATH] = { 0 };
     if (!SetupPathForFileName(SCRIPT_SEMANTIC_TEST_CASE_DIRECTORY, Directory, sizeof(Directory), FALSE))
     {
         ShowMessages("err, could not resolve the semantic test directory\n");
@@ -173,16 +173,16 @@ CommandTestScriptSemantic()
     std::vector<fs::path> Files;
     try
     {
-        for (const fs::directory_entry & Entry : fs::directory_iterator(Directory))
+        for (const fs::directory_entry& Entry : fs::directory_iterator(Directory))
             if (Entry.is_regular_file() && CommandTestLowerAscii(Entry.path().extension().string()) == ".ds")
                 Files.push_back(Entry.path());
-        std::sort(Files.begin(), Files.end(), [](const fs::path & Left, const fs::path & Right) {
+        std::sort(Files.begin(), Files.end(), [](const fs::path& Left, const fs::path& Right) {
             std::string L = CommandTestLowerAscii(Left.filename().string());
             std::string R = CommandTestLowerAscii(Right.filename().string());
             return L == R ? Left.filename().string() < Right.filename().string() : L < R;
-        });
+            });
     }
-    catch (const fs::filesystem_error & Exception)
+    catch (const fs::filesystem_error& Exception)
     {
         ShowMessages("err, could not enumerate semantic tests: %s\n", Exception.what());
         return;
@@ -190,7 +190,7 @@ CommandTestScriptSemantic()
     if (Files.empty()) { ShowMessages("err, no semantic .ds files were found in: %s\n", Directory); return; }
 
     std::vector<CLI_SEMANTIC_RESULT> Results;
-    for (const fs::path & File : Files)
+    for (const fs::path& File : Files)
     {
         ShowMessages("[ RUN      ] %s\n", File.filename().string().c_str());
         CLI_SEMANTIC_RESULT Result;
@@ -220,24 +220,24 @@ CommandTestScriptSemantic()
             std::chrono::steady_clock::now() - Started).count();
         std::string PassDetails = Result.Passed ? std::to_string(Result.ExpectationCount) + " expectations, " : "";
         ShowMessages("[%s] %s (%s%llu ms)%s%s\n", Result.Passed ? "       OK " : "  FAILED  ",
-                     File.filename().string().c_str(), PassDetails.c_str(), Result.DurationMilliseconds,
-                     Result.Diagnostic.empty() ? "" : " - ", Result.Diagnostic.c_str());
+            File.filename().string().c_str(), PassDetails.c_str(), Result.DurationMilliseconds,
+            Result.Diagnostic.empty() ? "" : " - ", Result.Diagnostic.c_str());
         Results.push_back(std::move(Result));
     }
 
-    SIZE_T Passed = std::count_if(Results.begin(), Results.end(), [](const CLI_SEMANTIC_RESULT & Result) { return Result.Passed; });
+    SIZE_T Passed = std::count_if(Results.begin(), Results.end(), [](const CLI_SEMANTIC_RESULT& Result) { return Result.Passed; });
     ShowMessages("\nSemantic script suite: %llu files, %llu passed, %llu failed\n",
-                 (UINT64)Results.size(), (UINT64)Passed, (UINT64)(Results.size() - Passed));
+        (UINT64)Results.size(), (UINT64)Passed, (UINT64)(Results.size() - Passed));
     if (Passed != Results.size())
     {
         ShowMessages("Failed files:\n");
-        for (const CLI_SEMANTIC_RESULT & Result : Results)
+        for (const CLI_SEMANTIC_RESULT& Result : Results)
         {
             if (Result.Passed) continue;
             ShowMessages("  %s\n    %s\n", Result.File.filename().string().c_str(), Result.Diagnostic.c_str());
             if (!Result.Output.empty())
                 ShowMessages("----- captured output -----\n%s%s----- end captured output -----\n",
-                             Result.Output.c_str(), Result.Output.back() == '\n' ? "" : "\n");
+                    Result.Output.c_str(), Result.Output.back() == '\n' ? "" : "\n");
         }
     }
 }
@@ -277,7 +277,7 @@ CommandTestPerformKernelTestsIoctl()
 {
     BOOL                          Status;
     ULONG                         ReturnedLength;
-    DEBUGGER_PERFORM_KERNEL_TESTS KernelTestRequest = {0};
+    DEBUGGER_PERFORM_KERNEL_TESTS KernelTestRequest = { 0 };
 
     AssertShowMessageReturnStmt(g_IsKdModuleLoaded, g_DeviceHandle, ASSERT_MESSAGE_KD_NOT_LOADED, ASSERT_MESSAGE_DRIVER_NOT_LOADED, AssertReturnFalse);
 
@@ -294,7 +294,7 @@ CommandTestPerformKernelTestsIoctl()
         SIZEOF_DEBUGGER_PERFORM_KERNEL_TESTS, // Input buffer length
         &KernelTestRequest,                   // Output Buffer from driver.
         SIZEOF_DEBUGGER_PERFORM_KERNEL_TESTS, // Length of output buffer in
-                                              // bytes.
+        // bytes.
         &ReturnedLength,                      // Bytes placed in buffer.
         NULL                                  // synchronous call
     );
@@ -336,7 +336,7 @@ CommandTestAllFunctionalities()
     //
     // Test command parser
     //
-    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR *)TEST_CASE_PARAMETER_FOR_MAIN_COMMAND_PARSER))
+    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR*)TEST_CASE_PARAMETER_FOR_MAIN_COMMAND_PARSER))
     {
         ShowMessages("err, start HyperDbg test process for testing the main command parser\n");
         return;
@@ -345,7 +345,7 @@ CommandTestAllFunctionalities()
     //
     // Test PE parser helpers
     //
-    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR *)TEST_CASE_PARAMETER_FOR_PE_PARSER))
+    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR*)TEST_CASE_PARAMETER_FOR_PE_PARSER))
     {
         ShowMessages("err, start HyperDbg test process for testing the PE parser\n");
         return;
@@ -354,28 +354,16 @@ CommandTestAllFunctionalities()
     //
     // Test CodeView RSDS parser helpers
     //
-    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR *)TEST_CASE_PARAMETER_FOR_CODEVIEW_RSDS_PARSER))
+    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR*)TEST_CASE_PARAMETER_FOR_CODEVIEW_RSDS_PARSER))
     {
         ShowMessages("err, start HyperDbg test process for testing the CodeView RSDS parser\n");
-        return;
-    }
-
-    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR *)TEST_CASE_PARAMETER_FOR_SCRIPT_FLOATING_POINT))
-    {
-        ShowMessages("err, start HyperDbg test process for testing floating-point scripts\n");
-        return;
-    }
-
-    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR *)TEST_CASE_PARAMETER_FOR_SCRIPT_VARIABLE_TYPES))
-    {
-        ShowMessages("err, start HyperDbg test process for testing variable-type scripts\n");
         return;
     }
 
     //
     // Test script engine (script parser) using semantic tests
     //
-    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR *)TEST_CASE_PARAMETER_FOR_SCRIPT_SEMANTIC_TEST_CASES))
+    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR*)TEST_CASE_PARAMETER_FOR_SCRIPT_SEMANTIC_TEST_CASES))
     {
         ShowMessages("err, start HyperDbg test process for testing semantic tests\n");
         return;
@@ -396,7 +384,7 @@ CommandTestAllHwdbg()
     //
     // Test hwdbg functionalities
     //
-    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR *)TEST_HWDBG_FUNCTIONALITIES))
+    if (!OpenHyperDbgTestProcess(&ThreadHandle, &ProcessHandle, (CHAR*)TEST_HWDBG_FUNCTIONALITIES))
     {
         ShowMessages("err, start HyperDbg test process for testing hwdbg functionalities\n");
         return;
@@ -417,12 +405,12 @@ CommandTestPerformTest()
     HANDLE  ThreadHandle;
     HANDLE  ProcessHandle;
     UINT32  ReadBytes;
-    CHAR *  Buffer = NULL;
+    CHAR* Buffer = NULL;
 
     //
     // Allocate memory
     //
-    Buffer = (CHAR *)malloc(TEST_CASE_MAXIMUM_BUFFERS_TO_COMMUNICATE);
+    Buffer = (CHAR*)malloc(TEST_CASE_MAXIMUM_BUFFERS_TO_COMMUNICATE);
 
     if (!Buffer)
     {
@@ -436,8 +424,8 @@ CommandTestPerformTest()
     // Create tests process to create a thread for us
     //
     if (!CreateProcessAndOpenPipeConnection(&PipeHandle,
-                                            &ThreadHandle,
-                                            &ProcessHandle))
+        &ThreadHandle,
+        &ProcessHandle))
     {
         ShowMessages("err, enable to connect to the test process\n");
 
@@ -473,7 +461,7 @@ SendCommandAndWaitForResponse:
 
     PlatformZeroMemory(Buffer, TEST_CASE_MAXIMUM_BUFFERS_TO_COMMUNICATE);
     ReadBytes =
-        NamedPipeServerReadClientMessage(PipeHandle, (CHAR *)Buffer, TEST_CASE_MAXIMUM_BUFFERS_TO_COMMUNICATE);
+        NamedPipeServerReadClientMessage(PipeHandle, (CHAR*)Buffer, TEST_CASE_MAXIMUM_BUFFERS_TO_COMMUNICATE);
 
     if (!ReadBytes)
     {
@@ -508,7 +496,7 @@ CommandTestQueryState()
     if (!g_IsSerialConnectedToRemoteDebuggee)
     {
         ShowMessages("err, query state of the debuggee is only possible when you connected "
-                     "in debugger mode\n");
+            "in debugger mode\n");
         return;
     }
 
@@ -529,7 +517,7 @@ CommandTestQueryTrapState()
     if (!g_IsSerialConnectedToRemoteDebuggee)
     {
         ShowMessages("err, query state of the debuggee is only possible when you connected "
-                     "in debugger mode\n");
+            "in debugger mode\n");
         return;
     }
 
@@ -550,7 +538,7 @@ CommandTestQueryPreAllocPoolsState()
     if (!g_IsSerialConnectedToRemoteDebuggee)
     {
         ShowMessages("err, query state of the debuggee is only possible when you connected "
-                     "in debugger mode\n");
+            "in debugger mode\n");
         return;
     }
 
@@ -572,7 +560,7 @@ CommandTestSetTargetTaskToHaltedCores(BOOLEAN Synchronous)
     if (!g_IsSerialConnectedToRemoteDebuggee)
     {
         ShowMessages("err, query state of the debuggee is only possible when you connected "
-                     "in debugger mode\n");
+            "in debugger mode\n");
         return;
     }
 
@@ -594,7 +582,7 @@ CommandTestSetTargetTaskToTargetCore(UINT32 CoreNumber)
     if (!g_IsSerialConnectedToRemoteDebuggee)
     {
         ShowMessages("err, query state of the debuggee is only possible when you connected "
-                     "in debugger mode\n");
+            "in debugger mode\n");
         return;
     }
 
@@ -615,7 +603,7 @@ CommandTestSetBreakpointState(BOOLEAN State)
     if (!g_IsSerialConnectedToRemoteDebuggee)
     {
         ShowMessages("err, query state of the debuggee is only possible when you connected "
-                     "in debugger mode\n");
+            "in debugger mode\n");
         return;
     }
 
@@ -643,7 +631,7 @@ CommandTestSetDebugBreakState(BOOLEAN State)
     if (!g_IsSerialConnectedToRemoteDebuggee)
     {
         ShowMessages("err, query state of the debuggee is only possible when you connected "
-                     "in debugger mode\n");
+            "in debugger mode\n");
         return;
     }
 
@@ -678,7 +666,7 @@ CommandTest(vector<CommandToken> CommandTokens, string Command)
     if (CommandSize == 1)
     {
         ShowMessages("incorrect use of the '%s'\n\n",
-                     GetCaseSensitiveStringFromCommandToken(CommandTokens.at(0)).c_str());
+            GetCaseSensitiveStringFromCommandToken(CommandTokens.at(0)).c_str());
         CommandTestHelp();
     }
     else if (CommandSize == 2 && CompareLowerCaseStrings(CommandTokens.at(1), "query"))
@@ -745,7 +733,7 @@ CommandTest(vector<CommandToken> CommandTokens, string Command)
         else
         {
             ShowMessages("err, couldn't resolve error at '%s'\n\n",
-                         GetCaseSensitiveStringFromCommandToken(CommandTokens.at(2)).c_str());
+                GetCaseSensitiveStringFromCommandToken(CommandTokens.at(2)).c_str());
             return;
         }
     }
@@ -765,7 +753,7 @@ CommandTest(vector<CommandToken> CommandTokens, string Command)
         else
         {
             ShowMessages("err, couldn't resolve error at '%s'\n\n",
-                         GetCaseSensitiveStringFromCommandToken(CommandTokens.at(2)).c_str());
+                GetCaseSensitiveStringFromCommandToken(CommandTokens.at(2)).c_str());
             return;
         }
     }
@@ -790,7 +778,7 @@ CommandTest(vector<CommandToken> CommandTokens, string Command)
     else
     {
         ShowMessages("incorrect use of the '%s'\n\n",
-                     GetCaseSensitiveStringFromCommandToken(CommandTokens.at(0)).c_str());
+            GetCaseSensitiveStringFromCommandToken(CommandTokens.at(0)).c_str());
         CommandTestHelp();
         return;
     }

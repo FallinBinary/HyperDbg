@@ -852,8 +852,8 @@ stops at the first `#error "Not yet implemented"`.
 | `PlatformIo.c` | ✅ ported 2026-08-11 — stub skeleton, see below |
 | `PlatformIrql.c` | ✅ ported 2026-08-11 — **real** (preempt_disable/enable) |
 | `PlatformProcess.c` | ✅ ported 2026-08-11 — mostly real (`current`/task ids), $teb stub |
-| `PlatformSpinlock.c` | ❌ 3 stubs — **next to fail** |
-| `PlatformTime.c` | ❌ 3 stubs |
+| `PlatformSpinlock.c` | ✅ ported 2026-08-11 — **real** (spinlock_t / spin_lock) |
+| `PlatformTime.c` | ❌ 3 stubs — **next to fail** |
 
 ### `PlatformCpu.c` — DONE (2026-08-01)
 
@@ -1004,6 +1004,27 @@ not the per-thread `current` (which `GetCurrentThread` correctly returns). `curr
 `task_*_nr`/`uintptr_t` resolve via pch. **Follow-up:** `$pname` name won't work until
 `CommonGetProcessNameFromProcessControlBlock` (hyperhv/hyperkd) is ported to read
 `((struct task_struct *)Eprocess)->comm`.
+
+### `PlatformSpinlock.c` — DONE (2026-08-11) — **real mapping**
+
+`KeAcquireSpinLock` raises to DISPATCH_LEVEL (preempt off, HW IRQs on) + acquires
+= Linux `spin_lock()`; same DISPATCH↔preempt mapping as `PlatformIrql`. All
+callers are the hyperlog buffer locks (`Logging.c`).
+
+| Windows | Linux |
+|---------|-------|
+| `KeInitializeSpinLock` | `spin_lock_init` |
+| `KeAcquireSpinLock(l,&old)` | `spin_lock(l)`; `*OldIrql = 0` |
+| `KeReleaseSpinLock(l,old)` | `spin_unlock(l)` (OldIrql ignored) |
+
+`KSPIN_LOCK` is stored **by value** in `LOG_BUFFER_INFORMATION` (`Logging.h:70`),
+so the Linux type is a real `spinlock_t` (typedef in `DataTypes.h`, kernel-guarded
+like `KDPC`; `<linux/spinlock.h>` → pch). `PKIRQL` added to `BasicTypes.h`. The
+`OldIrql` token is vestigial (preempt is a nesting counter). Chose `spin_lock`
+over `spin_lock_irqsave` deliberately: irqsave disables IRQs (higher than Windows
+takes here) *and* its `unsigned long flags` wouldn't fit the 1-byte `KIRQL`. If a
+future caller takes one of these locks from hard-IRQ context, revisit (irqsave,
+with flags stored in the lock struct). Guard removed.
 
 ---
 

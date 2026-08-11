@@ -135,6 +135,7 @@ typedef LONG  KPRIORITY;
 typedef ULONG ACCESS_MASK;
 typedef CHAR  KPROCESSOR_MODE;
 typedef UCHAR KIRQL; // IRQL token; on Linux the raise/lower maps to preempt_disable/enable
+typedef KIRQL * PKIRQL;
 
 typedef struct _KEVENT KEVENT, *PKEVENT; // opaque (eventfd-backed later)
 typedef PVOID POBJECT_TYPE;              // opaque NT object type

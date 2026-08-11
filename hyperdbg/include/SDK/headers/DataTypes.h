@@ -99,6 +99,13 @@ typedef struct _KDPC
     PVOID              SystemArgument2;
 } KDPC, *PKDPC, *PRKDPC;
 
+//
+// Windows KSPIN_LOCK is an integer token; Linux's spinlock_t is a real struct.
+// It is embedded BY VALUE in LOG_BUFFER_INFORMATION (Logging.h), so it must be a
+// full-sized type. spin_lock()/spin_unlock() = preempt-off (DISPATCH_LEVEL).
+//
+typedef spinlock_t KSPIN_LOCK, *PKSPIN_LOCK;
+
 #endif // defined(__linux__) && defined(HYPERDBG_KERNEL_MODE)
 
 //////////////////////////////////////////////////

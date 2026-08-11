@@ -13,6 +13,31 @@
 
 #if defined(__linux__)
 #    include "../header/PlatformDpc.h"
+
+/**
+ * @brief BH-workqueue trampoline for the Linux KDPC backing
+ *
+ * @details A Linux work callback receives only the work_struct pointer, whereas
+ * the Windows DPC contract hands the deferred routine four arguments. Recover
+ * the enclosing KDPC and replay the Windows-style (Dpc, Context, Arg1, Arg2)
+ * call. SKELETON — compile-clean wiring, not yet runtime-tested.
+ *
+ * @param Work The work_struct embedded in the owning KDPC
+ * @return void
+ */
+static void
+PlatformDpcWorkTrampoline(struct work_struct * Work)
+{
+    KDPC * Dpc = container_of(Work, KDPC, Work);
+
+    if (Dpc->DeferredRoutine != NULL)
+    {
+        Dpc->DeferredRoutine(Dpc,
+                             Dpc->DeferredContext,
+                             Dpc->SystemArgument1,
+                             Dpc->SystemArgument2);
+    }
+}
 #endif // defined(__linux__)
 
 /**
@@ -32,7 +57,16 @@ PlatformDpcInitialize(PRKDPC Dpc, PKDEFERRED_ROUTINE DeferredRoutine, PVOID Defe
 
 #elif defined(__linux__)
 
-#    error "Not yet implemented"
+    //
+    // Stash the Windows-style routine + context so the tasklet trampoline can
+    // replay the 4-argument call. System arguments are supplied at queue time.
+    //
+    Dpc->DeferredRoutine = DeferredRoutine;
+    Dpc->DeferredContext = DeferredContext;
+    Dpc->SystemArgument1 = NULL;
+    Dpc->SystemArgument2 = NULL;
+
+    INIT_WORK(&Dpc->Work, PlatformDpcWorkTrampoline);
 
 #else
 
@@ -58,7 +92,19 @@ PlatformDpcInsertQueueDpc(PRKDPC Dpc, PVOID SystemArgument1, PVOID SystemArgumen
 
 #elif defined(__linux__)
 
-#    error "Not yet implemented"
+    //
+    // Supply the system arguments for this run, then hand the work item to the
+    // bottom-half (BH) workqueue, which runs it in softirq context — the closest
+    // match to a DPC at DISPATCH_LEVEL. queue_work() is safe from atomic/
+    // interrupt context, matching KeInsertQueueDpc.
+    //
+    // queue_work() returns false if the item was already pending, mirroring
+    // KeInsertQueueDpc's "FALSE if already queued" contract, so return it directly.
+    //
+    Dpc->SystemArgument1 = SystemArgument1;
+    Dpc->SystemArgument2 = SystemArgument2;
+
+    return queue_work(system_bh_wq, &Dpc->Work) ? TRUE : FALSE;
 
 #else
 

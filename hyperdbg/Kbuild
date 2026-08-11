@@ -71,16 +71,19 @@ HyperDbg-objs += include/platform/kernel/code/PlatformIntrinsicsVmx.o
 # ===========================================================================
 
 # --- platform/kernel (OS abstraction layer) --------------------------------
+# These are ported and compile clean:
 HyperDbg-objs += include/platform/kernel/code/PlatformBroadcast.o
 HyperDbg-objs += include/platform/kernel/code/PlatformCpu.o
 HyperDbg-objs += include/platform/kernel/code/PlatformDbg.o
 HyperDbg-objs += include/platform/kernel/code/PlatformDpc.o
-HyperDbg-objs += include/platform/kernel/code/PlatformEvent.o
-HyperDbg-objs += include/platform/kernel/code/PlatformIo.o
-HyperDbg-objs += include/platform/kernel/code/PlatformIrql.o
-HyperDbg-objs += include/platform/kernel/code/PlatformProcess.o
-HyperDbg-objs += include/platform/kernel/code/PlatformSpinlock.o
-HyperDbg-objs += include/platform/kernel/code/PlatformTime.o
+# Still on the WDK (IRQL/event/io/process/spinlock/time). Commented out so
+# the module links today; uncomment each as `make one FILE=...` on it goes green.
+# HyperDbg-objs += include/platform/kernel/code/PlatformEvent.o
+# HyperDbg-objs += include/platform/kernel/code/PlatformIo.o
+# HyperDbg-objs += include/platform/kernel/code/PlatformIrql.o
+# HyperDbg-objs += include/platform/kernel/code/PlatformProcess.o
+# HyperDbg-objs += include/platform/kernel/code/PlatformSpinlock.o
+# HyperDbg-objs += include/platform/kernel/code/PlatformTime.o
 
 # --- components (shared, header-driven) ------------------------------------
 # HyperDbg-objs += include/components/spinlock/code/Spinlock.o

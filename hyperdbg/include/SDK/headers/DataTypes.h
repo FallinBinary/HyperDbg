@@ -62,6 +62,46 @@ typedef struct _LIST_ENTRY
 #endif // defined(__linux__)
 
 //////////////////////////////////////////////////
+//         Deferred Procedure Call (DPC)         //
+//////////////////////////////////////////////////
+
+#if defined(__linux__) && defined(HYPERDBG_KERNEL_MODE)
+
+//
+// Windows' KDPC is a "run this small routine soon, from a safe (DISPATCH_LEVEL)
+// context" object. The closest Linux analog is a bottom-half (BH) workqueue: it
+// runs the work item in softirq context like a DPC, but via the modern,
+// non-deprecated workqueue API (tasklets are deprecated). The struct is stored
+// BY VALUE inside NOTIFY_RECORD (hyperlog), so it must be a real, fully-sized type.
+//
+// A Linux work callback receives only the work_struct pointer, whereas Windows
+// hands the deferred routine four arguments (Dpc, Context, Arg1, Arg2). We stash
+// the routine + context + system arguments here and reconstruct the 4-arg call
+// in a trampoline (see PlatformDpc.c).
+//
+// SKELETON (2026-08-11): compile-clean wiring only. There is no teardown/cancel
+// wrapper yet — a queued work item embedded in freed memory is a use-after-free,
+// so real callers will need cancel_work_sync() before the owning NOTIFY_RECORD
+// is freed. See the TODO(Linux) notes in PlatformDpc.c.
+//
+struct _KDPC;
+typedef VOID (*PKDEFERRED_ROUTINE)(struct _KDPC * Dpc,
+                                   PVOID          DeferredContext,
+                                   PVOID          SystemArgument1,
+                                   PVOID          SystemArgument2);
+
+typedef struct _KDPC
+{
+    struct work_struct Work;            // Linux deferred-work primitive (BH workqueue = softirq)
+    PKDEFERRED_ROUTINE DeferredRoutine; // Windows-style routine, replayed by the trampoline
+    PVOID              DeferredContext;
+    PVOID              SystemArgument1;
+    PVOID              SystemArgument2;
+} KDPC, *PKDPC, *PRKDPC;
+
+#endif // defined(__linux__) && defined(HYPERDBG_KERNEL_MODE)
+
+//////////////////////////////////////////////////
 //                 Pool Manager      			//
 //////////////////////////////////////////////////
 

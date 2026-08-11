@@ -847,9 +847,9 @@ stops at the first `#error "Not yet implemented"`.
 | `PlatformBroadcast.c` | ✅ ported 2026-08-01 |
 | `PlatformCpu.c` | ✅ ported 2026-08-01 — see below |
 | `PlatformDbg.c` | ✅ ported 2026-08-01 — see below |
-| `PlatformDpc.c` | ❌ 2 stubs — **next to fail**; also 2 *type* errors (see below) |
+| `PlatformDpc.c` | ✅ ported 2026-08-11 — tasklet skeleton, see below |
 | `PlatformIrql.c` | ❌ 2 stubs |
-| `PlatformEvent.c` | ❌ 3 stubs |
+| `PlatformEvent.c` | ❌ 3 stubs — **next to fail** |
 | `PlatformIo.c` | ❌ 3 stubs |
 | `PlatformSpinlock.c` | ❌ 3 stubs |
 | `PlatformTime.c` | ❌ 3 stubs |
@@ -893,18 +893,53 @@ Nuances, deliberately not "fixed" (would be logic changes; callers unaffected):
 
 - [ ] Revisit loglevel + `DbgPrintLimitation` sizing once kernel logging is exercised.
 
-### Next up: `PlatformDpc.c`
+### `PlatformDpc.c` — DONE (2026-08-11) — BH-workqueue skeleton
 
-Not a body swap — the signatures fail too (`PRKDPC`, `PKDEFERRED_ROUTINE` unknown
-on Linux). Needs Linux types for the KDPC object + deferred-routine fn-ptr first.
-Backing it with `smp_call_function_single_async` / `irq_work` / `tasklet` is a
-design decision, not a mechanical swap.
+Backing = **bottom-half (BH) workqueue** (`system_bh_wq`, kernel ≥6.9): runs in
+softirq context like a DPC/DISPATCH_LEVEL, but via the non-deprecated workqueue
+API (tasklets are deprecated). Only consumer is hyperlog's log→usermode notify
+path. Linux `KDPC` type added to `DataTypes.h` (guard `__linux__ &&
+HYPERDBG_KERNEL_MODE`; embeds `struct work_struct` + the routine/context/args) —
+must be a real struct since it's stored by value in `NOTIFY_RECORD`
+(`Logging.h:49`). `<linux/workqueue.h>` → `linux/kernel/pch.h`; `PlatformDpc.h`
+prototypes widened to `|| __linux__`.
+
+| Windows | Linux |
+|---------|-------|
+| `KeInitializeDpc` | stash routine/ctx + `INIT_WORK(&Work, trampoline)` |
+| `KeInsertQueueDpc` | stash args + `queue_work(system_bh_wq, &Work)` |
+
+Work callback gets only the work_struct ptr, so a `container_of` trampoline
+replays the Windows 4-arg call. `queue_work()` returns false when already pending,
+which matches `KeInsertQueueDpc`'s "FALSE if already queued" — returned directly.
+**SKELETON — compile-clean, not runtime-tested:** no teardown (a queued work item
+in a freed `NOTIFY_RECORD` = UAF; needs `cancel_work_sync` before free once
+hyperlog is ported). No live caller yet (hyperlog not compiled).
 
 ---
 
 ## Building
 
 ```bash
-cmake .   # re-run only when CMake files change
+cmake .   # re-run only when CMake files change (user-mode CLI)
 make      # build; find the next file that fails, port it, repeat
 ```
+
+### Kernel module — file-by-file port loop
+
+From `linux/kernel/`:
+
+```bash
+make one FILE=include/platform/kernel/code/PlatformDpc.c  # compile ONE TU, no link
+# ...stub out the WDK bits until it compiles clean...
+# then move its line into the ACTIVE block of ../../Kbuild and:
+make            # full module build -> ../../HyperDbg.ko
+```
+
+`make one` wraps kbuild's single-object target (`make -C $KDIR M=$ROOT File.o`):
+it compiles just that TU with the Kbuild `ccflags-y` include paths and **does not
+link the module**, so you see only that file's own WDK/type errors instead of a
+wall of undefined-symbol link errors from the not-yet-ported files. The file need
+not be in `Kbuild` yet. Keep `HyperDbg-objs` = only files that compile clean, so a
+full `make` always yields a loadable `.ko`; promote each file's line once `make
+one` on it is green.

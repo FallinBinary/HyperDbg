@@ -86,12 +86,12 @@ HyperDbg-objs += include/platform/kernel/code/PlatformSpinlock.o
 HyperDbg-objs += include/platform/kernel/code/PlatformTime.o
 
 # --- components (shared, header-driven) ------------------------------------
-# HyperDbg-objs += include/components/spinlock/code/Spinlock.o
-# HyperDbg-objs += include/components/optimizations/code/AvlTree.o
-# HyperDbg-objs += include/components/optimizations/code/BinarySearch.o
-# HyperDbg-objs += include/components/optimizations/code/InsertionSort.o
-# HyperDbg-objs += include/components/optimizations/code/OptimizationsExamples.o
-# HyperDbg-objs += include/components/callback/code/HyperLogCallback.o
+HyperDbg-objs += include/components/spinlock/code/Spinlock.o
+HyperDbg-objs += include/components/optimizations/code/AvlTree.o
+HyperDbg-objs += include/components/optimizations/code/BinarySearch.o
+HyperDbg-objs += include/components/optimizations/code/InsertionSort.o
+HyperDbg-objs += include/components/optimizations/code/OptimizationsExamples.o
+HyperDbg-objs += include/components/callback/code/HyperLogCallback.o
 
 # --- script-eval (script engine kernel eval) -------------------------------
 # HyperDbg-objs += script-eval/code/Functions.o

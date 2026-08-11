@@ -835,9 +835,9 @@ make KDIR=/path/to/linux-headers
 ```
 
 kbuild prefers the root `Kbuild` under `M=`, so both build systems coexist.
-`Kbuild` lists every future object with the un-ported ones commented out. Current
-front: the ten `include/platform/kernel/` TUs, all uncommented — so the build
-stops at the first `#error "Not yet implemented"`.
+`Kbuild` lists every future object with the un-ported ones commented out. The
+`include/platform/kernel/` layer (13 TUs) is now **complete** — all compile and
+link into `HyperDbg.ko`. Next front is the subsystems above it (hyperlog first).
 
 | TU | Status |
 |----|--------|
@@ -853,7 +853,12 @@ stops at the first `#error "Not yet implemented"`.
 | `PlatformIrql.c` | ✅ ported 2026-08-11 — **real** (preempt_disable/enable) |
 | `PlatformProcess.c` | ✅ ported 2026-08-11 — mostly real (`current`/task ids), $teb stub |
 | `PlatformSpinlock.c` | ✅ ported 2026-08-11 — **real** (spinlock_t / spin_lock) |
-| `PlatformTime.c` | ❌ 3 stubs — **next to fail** |
+| `PlatformTime.c` | ✅ ported 2026-08-11 — **real** (ktime + epoch conversion) |
+
+**🎉 The entire `platform/kernel` OS-abstraction layer now compiles and
+`HyperDbg.ko` links with all 13 TUs active (2026-08-11).** No `#error` stubs left
+in the layer. Next front: the subsystems above it (hyperlog is the natural first —
+it's the sole consumer of most of what was just built).
 
 ### `PlatformCpu.c` — DONE (2026-08-01)
 
@@ -1025,6 +1030,25 @@ over `spin_lock_irqsave` deliberately: irqsave disables IRQs (higher than Window
 takes here) *and* its `unsigned long flags` wouldn't fit the 1-byte `KIRQL`. If a
 future caller takes one of these locks from hard-IRQ context, revisit (irqsave,
 with flags stored in the lock struct). Guard removed.
+
+### `PlatformTime.c` — DONE (2026-08-11) — **real** (log timestamps)
+
+Sole caller: `Logging.c:1072` builds a log-message timestamp
+(QuerySystemTime→ConvertToLocalTime→ConvertToTimeFields). NT time is 100-ns ticks
+since **1601**; Linux gives Unix-epoch (1970) — bridged by two constants
+(`HUNDRED_NS_PER_SEC`, `EPOCH_DIFF_1601_TO_1970_SECS = 11644473600`).
+
+| Windows | Linux |
+|---------|-------|
+| `KeQuerySystemTime` | `ktime_get_real_ts64` → `(sec + epochdiff)*1e7 + nsec/100` |
+| `ExSystemTimeToLocalTime` | subtract `sys_tz.tz_minuteswest*60*1e7` (0 if RTC=UTC) |
+| `RtlTimeToTimeFields` | `time64_to_tm` → fill `TIME_FIELDS` (Year=tm_year+1900, Month=tm_mon+1, Weekday Sun=0) |
+
+`TIME_FIELDS` added to `DataTypes.h` (plain struct). `<linux/timekeeping.h>` +
+`<linux/time.h>` included locally in the `.c` (not pch — no shared type embeds
+them). All three kernel symbols are module-exported (verified). Guard removed.
+Note: upstream `Logging.c` currently has the timestamp *formatting* commented out
+(`RtlStringCchPrintfA` not IRQL-safe), so the value is computed but not yet printed.
 
 ---
 

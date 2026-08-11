@@ -59,6 +59,22 @@ typedef struct _LIST_ENTRY
     struct _LIST_ENTRY * Blink;
 } LIST_ENTRY, *PLIST_ENTRY;
 
+//
+// Broken-down calendar time — mirrors the Windows TIME_FIELDS that
+// RtlTimeToTimeFields produces (CSHORT == SHORT). See PlatformTime.
+//
+typedef struct _TIME_FIELDS
+{
+    SHORT Year;
+    SHORT Month;        // 1..12
+    SHORT Day;          // 1..31
+    SHORT Hour;         // 0..23
+    SHORT Minute;       // 0..59
+    SHORT Second;       // 0..59
+    SHORT Milliseconds; // 0..999
+    SHORT Weekday;      // 0..6 (Sunday = 0)
+} TIME_FIELDS, *PTIME_FIELDS;
+
 #endif // defined(__linux__)
 
 //////////////////////////////////////////////////

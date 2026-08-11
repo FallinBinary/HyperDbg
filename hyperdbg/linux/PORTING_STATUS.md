@@ -848,9 +848,9 @@ stops at the first `#error "Not yet implemented"`.
 | `PlatformCpu.c` | ✅ ported 2026-08-01 — see below |
 | `PlatformDbg.c` | ✅ ported 2026-08-01 — see below |
 | `PlatformDpc.c` | ✅ ported 2026-08-11 — tasklet skeleton, see below |
+| `PlatformEvent.c` | ✅ ported 2026-08-11 — stub skeleton, see below |
 | `PlatformIrql.c` | ❌ 2 stubs |
-| `PlatformEvent.c` | ❌ 3 stubs — **next to fail** |
-| `PlatformIo.c` | ❌ 3 stubs |
+| `PlatformIo.c` | ❌ 3 stubs — **next to fail** |
 | `PlatformSpinlock.c` | ❌ 3 stubs |
 | `PlatformTime.c` | ❌ 3 stubs |
 | `PlatformProcess.c` | ❌ 5 stubs |
@@ -915,6 +915,33 @@ which matches `KeInsertQueueDpc`'s "FALSE if already queued" — returned direct
 **SKELETON — compile-clean, not runtime-tested:** no teardown (a queued work item
 in a freed `NOTIFY_RECORD` = UAF; needs `cancel_work_sync` before free once
 hyperlog is ported). No live caller yet (hyperlog not compiled).
+
+### `PlatformEvent.c` — DONE (2026-08-11) — stub skeleton
+
+The EVENT_BASED half of the same hyperlog notify path: user-mode passes an event
+*handle*, the kernel references it to a `KEVENT` and later signals it. No direct
+Linux analog (no NT handles/object-manager); the real backing would be **eventfd**
+(deferred — it also needs a coordinated user-mode-side change). Stubbed for now.
+
+Type plumbing added to `BasicTypes.h` Linux block (shared, reused by later kernel
+TUs): `NTSTATUS`/`KPRIORITY`/`ACCESS_MASK`/`KPROCESSOR_MODE` scalars, opaque
+`KEVENT`/`POBJECT_TYPE`/`POBJECT_HANDLE_INFORMATION`, and
+`STATUS_SUCCESS`/`STATUS_NOT_IMPLEMENTED`/`NT_SUCCESS`. Sole definitions (no
+collision — the two other `NTSTATUS` hits are *uses* in kernel headers).
+
+| Windows | Linux stub | eventfd TODO |
+|---------|-----------|--------------|
+| `ObDereferenceObject` | no-op | `eventfd_ctx_put` |
+| `KeSetEvent` | return 0 | `eventfd_signal` |
+| `ObReferenceObjectByHandle` | `*Object=NULL`, return `STATUS_NOT_IMPLEMENTED` | `eventfd_ctx_fdget` |
+
+Consequence: EVENT_BASED notify is a no-op/fail-closed on Linux until eventfd
+lands. No live caller yet (hyperlog not compiled).
+
+**Header cleanup (both Dpc + Event):** the `#if _WIN32 || _WIN64 || __linux__`
+wrappers around the prototypes were removed — that condition is every supported
+platform (the `.c` files `#error` on anything else), so the prototypes are now
+declared unconditionally.
 
 ---
 

@@ -125,6 +125,24 @@ typedef struct _PROCESS_INFORMATION
     DWORD  dwThreadId;
 } PROCESS_INFORMATION, *PPROCESS_INFORMATION, *LPPROCESS_INFORMATION;
 
+// NT status + kernel event/object types (the kernel notify path — see
+// PlatformEvent). Scalar/opaque definitions so the shared Windows signatures
+// compile on Linux; the event/object backing itself is stubbed for now (a real
+// version would map KEVENT onto eventfd). NTSTATUS is fundamental and reused
+// across many kernel TUs.
+typedef LONG  NTSTATUS;
+typedef LONG  KPRIORITY;
+typedef ULONG ACCESS_MASK;
+typedef CHAR  KPROCESSOR_MODE;
+
+typedef struct _KEVENT KEVENT, *PKEVENT; // opaque (eventfd-backed later)
+typedef PVOID POBJECT_TYPE;              // opaque NT object type
+typedef PVOID POBJECT_HANDLE_INFORMATION; // opaque access-state out-param
+
+#    define STATUS_SUCCESS         ((NTSTATUS)0x00000000L)
+#    define STATUS_NOT_IMPLEMENTED ((NTSTATUS)0xC0000002L)
+#    define NT_SUCCESS(Status)     (((NTSTATUS)(Status)) >= 0)
+
 #endif
 
 #define NULL_ZERO   0

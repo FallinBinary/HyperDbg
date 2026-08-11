@@ -30,7 +30,11 @@ PlatformObjectDereference(PVOID Object)
 
 #elif defined(__linux__)
 
-#    error "Not yet implemented"
+    //
+    // STUB: EVENT_BASED notify is unsupported on Linux until an eventfd backing
+    // lands. TODO(Linux): eventfd_ctx_put((struct eventfd_ctx *)Object).
+    //
+    UNREFERENCED_PARAMETER(Object);
 
 #else
 
@@ -56,7 +60,15 @@ PlatformEventSet(PKEVENT Event, KPRIORITY Increment, BOOLEAN Wait)
 
 #elif defined(__linux__)
 
-#    error "Not yet implemented"
+    //
+    // STUB. TODO(Linux): eventfd_signal((struct eventfd_ctx *)Event). Returns the
+    // previous signal state; 0 is a safe default (no caller inspects it).
+    //
+    UNREFERENCED_PARAMETER(Event);
+    UNREFERENCED_PARAMETER(Increment);
+    UNREFERENCED_PARAMETER(Wait);
+
+    return 0;
 
 #else
 
@@ -95,7 +107,22 @@ PlatformObjectReferenceByHandle(HANDLE                     Handle,
 
 #elif defined(__linux__)
 
-#    error "Not yet implemented"
+    //
+    // STUB. TODO(Linux): eventfd_ctx_fdget((int)(uintptr_t)Handle) into *Object.
+    // Fail closed so the EVENT_BASED registration path bails cleanly.
+    //
+    UNREFERENCED_PARAMETER(Handle);
+    UNREFERENCED_PARAMETER(DesiredAccess);
+    UNREFERENCED_PARAMETER(ObjectType);
+    UNREFERENCED_PARAMETER(AccessMode);
+    UNREFERENCED_PARAMETER(HandleInformation);
+
+    if (Object != NULL)
+    {
+        *Object = NULL;
+    }
+
+    return STATUS_NOT_IMPLEMENTED;
 
 #else
 

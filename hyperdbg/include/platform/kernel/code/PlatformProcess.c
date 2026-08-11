@@ -29,7 +29,7 @@ PlatformProcessGetCurrentThreadId(VOID)
 
 #elif defined(__linux__)
 
-#    error "Not yet implemented"
+    return (HANDLE)(uintptr_t)task_pid_nr(current); // tsk->pid == the thread id (userspace TID)
 
 #else
 
@@ -52,7 +52,7 @@ PlatformProcessGetCurrentProcessId(VOID)
 
 #elif defined(__linux__)
 
-#    error "Not yet implemented"
+    return (HANDLE)(uintptr_t)task_tgid_nr(current); // tsk->tgid == the process id (userspace PID)
 
 #else
 
@@ -75,7 +75,13 @@ PlatformProcessGetCurrentProcess(VOID)
 
 #elif defined(__linux__)
 
-#    error "Not yet implemented"
+    //
+    // PsGetCurrentProcess returns the per-PROCESS object (identical for every
+    // thread in the process). current is the per-THREAD task_struct, so use its
+    // thread-group leader — stable across all threads, and the correct source
+    // for the process ->comm name.
+    //
+    return (PVOID)current->group_leader;
 
 #else
 
@@ -98,7 +104,10 @@ PlatformProcessGetCurrentThread(VOID)
 
 #elif defined(__linux__)
 
-#    error "Not yet implemented"
+    //
+    // On Linux a task IS a thread, so the current task_struct is the thread object.
+    //
+    return (PVOID)current;
 
 #else
 
@@ -121,7 +130,11 @@ PlatformProcessGetCurrentThreadTeb(VOID)
 
 #elif defined(__linux__)
 
-#    error "Not yet implemented"
+    //
+    // STUB: the TEB is a Windows user-mode structure with no Linux equivalent
+    // (cf. $peb, likewise stubbed). $teb reads NULL on Linux.
+    //
+    return NULL;
 
 #else
 

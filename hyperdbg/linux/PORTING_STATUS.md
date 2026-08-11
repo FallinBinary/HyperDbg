@@ -851,9 +851,9 @@ stops at the first `#error "Not yet implemented"`.
 | `PlatformEvent.c` | ✅ ported 2026-08-11 — stub skeleton, see below |
 | `PlatformIo.c` | ✅ ported 2026-08-11 — stub skeleton, see below |
 | `PlatformIrql.c` | ✅ ported 2026-08-11 — **real** (preempt_disable/enable) |
+| `PlatformProcess.c` | ✅ ported 2026-08-11 — mostly real (`current`/task ids), $teb stub |
 | `PlatformSpinlock.c` | ❌ 3 stubs — **next to fail** |
 | `PlatformTime.c` | ❌ 3 stubs |
-| `PlatformProcess.c` | ❌ 5 stubs |
 
 ### `PlatformCpu.c` — DONE (2026-08-01)
 
@@ -981,6 +981,29 @@ level); correctness only needs the raise/lower to be **balanced**, which the
 caller is. `preempt_enable`'s reschedule-on-zero even mirrors `KeLowerIrql`
 draining pending DPCs. `KIRQL` (`UCHAR`) added to `BasicTypes.h`; guard removed.
 `preempt_*` resolve transitively via pch — no extra include.
+
+### `PlatformProcess.c` — DONE (2026-08-11) — mostly real
+
+Five current-process/thread queries, all called from `PseudoRegisters.c`
+(kernel branch: `$tid`/`$pid`/`$pname`/`$proc`/`$thread`/`$teb`).
+
+| Windows | Linux |
+|---------|-------|
+| `PsGetCurrentThreadId` | `(HANDLE)(uintptr_t)task_pid_nr(current)` — `tsk->pid` = TID |
+| `PsGetCurrentProcessId` | `(HANDLE)(uintptr_t)task_tgid_nr(current)` — `tsk->tgid` = PID |
+| `PsGetCurrentProcess` | `(PVOID)current->group_leader` |
+| `PsGetCurrentThread` | `(PVOID)current` (a task *is* a thread) |
+| `PsGetCurrentThreadTeb` | `NULL` — no Linux TEB (cf. `$peb`) |
+
+Watch the kernel's inverted naming: `task->pid` is the *thread* id, `task->tgid`
+the *process* id — so Id uses `task_pid_nr`, ProcessId uses `task_tgid_nr` (NOT
+the reverse). `pid_t`→`HANDLE` needs the `(uintptr_t)` cast (else `-Wint-conversion`).
+`GetCurrentProcess` uses `current->group_leader` (NOT `current`): `PsGetCurrentProcess`
+is per-*process* — identical for all threads — so it must be the thread-group leader,
+not the per-thread `current` (which `GetCurrentThread` correctly returns). `current`/
+`task_*_nr`/`uintptr_t` resolve via pch. **Follow-up:** `$pname` name won't work until
+`CommonGetProcessNameFromProcessControlBlock` (hyperhv/hyperkd) is ported to read
+`((struct task_struct *)Eprocess)->comm`.
 
 ---
 

@@ -847,11 +847,11 @@ stops at the first `#error "Not yet implemented"`.
 | `PlatformBroadcast.c` | ✅ ported 2026-08-01 |
 | `PlatformCpu.c` | ✅ ported 2026-08-01 — see below |
 | `PlatformDbg.c` | ✅ ported 2026-08-01 — see below |
-| `PlatformDpc.c` | ✅ ported 2026-08-11 — tasklet skeleton, see below |
+| `PlatformDpc.c` | ✅ ported 2026-08-11 — BH-workqueue skeleton, see below |
 | `PlatformEvent.c` | ✅ ported 2026-08-11 — stub skeleton, see below |
-| `PlatformIrql.c` | ❌ 2 stubs |
-| `PlatformIo.c` | ❌ 3 stubs — **next to fail** |
-| `PlatformSpinlock.c` | ❌ 3 stubs |
+| `PlatformIo.c` | ✅ ported 2026-08-11 — stub skeleton, see below |
+| `PlatformIrql.c` | ✅ ported 2026-08-11 — **real** (preempt_disable/enable) |
+| `PlatformSpinlock.c` | ❌ 3 stubs — **next to fail** |
 | `PlatformTime.c` | ❌ 3 stubs |
 | `PlatformProcess.c` | ❌ 5 stubs |
 
@@ -942,6 +942,45 @@ lands. No live caller yet (hyperlog not compiled).
 wrappers around the prototypes were removed — that condition is every supported
 platform (the `.c` files `#error` on anything else), so the prototypes are now
 declared unconditionally.
+
+### `PlatformIo.c` — DONE (2026-08-11) — stub skeleton
+
+The IRP (I/O Request Packet) third of the same hyperlog notify path. No NT IRP on
+Linux — a real version maps the IRP onto the char-device read/ioctl request that
+carries the notify buffer (deferred with the rest of the device layer). Stubbed.
+
+Opaque types added to `BasicTypes.h` Linux block: `CCHAR` + forward-declared
+`IRP`/`PIRP` and `IO_STACK_LOCATION`/`PIO_STACK_LOCATION` (enough for the
+signatures; the member layouts are only needed once Logging.c compiles).
+
+| Windows | Linux stub |
+|---------|-----------|
+| `IoGetCurrentIrpStackLocation` | return `NULL` |
+| `IoCompleteRequest` | no-op |
+| `IoMarkIrpPending` | no-op |
+
+Prototype guard removed (unconditional, same as Dpc/Event). No live caller yet
+(hyperlog not compiled).
+
+### `PlatformIrql.c` — DONE (2026-08-11) — **real mapping** (not a stub)
+
+DISPATCH_LEVEL = preemption off, hardware interrupts still on = Linux
+`preempt_disable()`. (`local_irq_save` would be a *higher* level — wrong.) The
+one caller (`Logging.c:387/406`) raises to hold off preemption while it takes a
+lock, then lowers — a balanced pair, both arms under the same `if (!IsVmxRoot)`.
+
+| Windows | Linux |
+|---------|-------|
+| `KeRaiseIrqlToDpcLevel()` | `preempt_disable()`; return 0 |
+| `KeLowerIrql(OldIrql)` | `preempt_enable()` (OldIrql ignored) |
+
+Verified against `include/linux/preempt.h`: `preempt_disable`/`preempt_enable`
+are `preempt_count_inc`/`dec` — a **nesting counter**, no saved token. So the
+returned `KIRQL` is unused (Linux restores by decrement, not to an absolute
+level); correctness only needs the raise/lower to be **balanced**, which the
+caller is. `preempt_enable`'s reschedule-on-zero even mirrors `KeLowerIrql`
+draining pending DPCs. `KIRQL` (`UCHAR`) added to `BasicTypes.h`; guard removed.
+`preempt_*` resolve transitively via pch — no extra include.
 
 ---
 

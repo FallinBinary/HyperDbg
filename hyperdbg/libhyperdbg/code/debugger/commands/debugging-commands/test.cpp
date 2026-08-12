@@ -62,6 +62,7 @@ CommandTestLowerAscii(std::string Value)
 
 static BOOLEAN
 CommandTestParseSemanticFile(const fs::path& FilePath,
+    const std::vector<std::string>& Arguments,
     std::string& Expression,
     CLI_SEMANTIC_EXPECTATION& Expectation,
     std::string& Error)
@@ -70,6 +71,11 @@ CommandTestParseSemanticFile(const fs::path& FilePath,
     if (!File) { Error = "could not open file"; return FALSE; }
     std::string Content((std::istreambuf_iterator<char>(File)), std::istreambuf_iterator<char>());
     if (File.bad()) { Error = "could not read file"; return FALSE; }
+
+    // Match .script argument semantics. Replace higher indexes first so an
+    // argument such as $arg10 cannot be partially consumed as $arg1.
+    for (SIZE_T Index = Arguments.size(); Index > 0; --Index)
+        ReplaceAll(Content, "$arg" + std::to_string(Index - 1), Arguments[Index - 1]);
 
     Expectation = {};
     const std::regex CasePattern("test_case([0-9]+)[[:space:]]*=[[:space:]]*1");
@@ -198,21 +204,41 @@ CommandTestScriptSemantic()
         CLI_SEMANTIC_EXPECTATION Expectation;
         std::string Expression;
         auto Started = std::chrono::steady_clock::now();
-        if (CommandTestParseSemanticFile(File, Expression, Expectation, Result.Diagnostic))
+        const std::vector<std::string> Arguments = {
+            File.string(),
+            g_IsSerialConnectedToRemoteDebuggee ? "1" : "0",
+            g_IsSerialConnectedToRemoteDebuggee ? "nt!ExAllocatePoolWithTag" : "0"
+        };
+        if (CommandTestParseSemanticFile(File, Arguments, Expression, Expectation, Result.Diagnostic))
         {
             Result.ExpectationCount = Expectation.Cases.size() + Expectation.Markers.size();
             {
                 std::lock_guard<std::mutex> Lock(g_CliSemanticOutputMutex);
                 g_CliSemanticOutput.clear();
             }
+            BOOLEAN ExecutionSucceeded = TRUE;
             SetTextMessageCallback((PVOID)CommandTestCaptureSemanticOutput);
-            ScriptEngineWrapperTestParser(Expression);
+            if (g_IsSerialConnectedToRemoteDebuggee)
+            {
+                // Match the '?' command path in debugger mode so semantic cases
+                // execute against the real debuggee registers and VMX-root
+                // facilities instead of the simulated user-mode environment.
+                ExecutionSucceeded = ScriptEngineExecuteSingleExpression(
+                    (CHAR *)Expression.c_str(), TRUE, FALSE);
+            }
+            else
+            {
+                ScriptEngineWrapperTestParser(Expression);
+                ExecutionSucceeded = !g_CurrentExprEvalResultHasError;
+            }
             UnsetTextMessageCallback();
             {
                 std::lock_guard<std::mutex> Lock(g_CliSemanticOutputMutex);
                 Result.Output = g_CliSemanticOutput;
             }
-            if (g_CurrentExprEvalResultHasError) Result.Diagnostic = "local script evaluator reported an error";
+            if (!ExecutionSucceeded)
+                Result.Diagnostic = g_IsSerialConnectedToRemoteDebuggee ?
+                    "remote script evaluator reported an error" : "local script evaluator reported an error";
             else if (CommandTestHasSemanticFailure(Result.Output)) Result.Diagnostic = "semantic failure output was reported";
             else Result.Passed = CommandTestHasExpectedSemanticOutput(Expectation, Result.Output, Result.Diagnostic);
         }

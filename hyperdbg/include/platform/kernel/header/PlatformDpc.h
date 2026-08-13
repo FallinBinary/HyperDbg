@@ -19,12 +19,8 @@
 //                  Functions                   //
 //////////////////////////////////////////////////
 
-#if defined(_WIN32) || defined(_WIN64)
-
 VOID
 PlatformDpcInitialize(PRKDPC Dpc, PKDEFERRED_ROUTINE DeferredRoutine, PVOID DeferredContext);
 
 BOOLEAN
 PlatformDpcInsertQueueDpc(PRKDPC Dpc, PVOID SystemArgument1, PVOID SystemArgument2);
-
-#endif // defined(_WIN32) || defined(_WIN64)

@@ -19,8 +19,6 @@
 //                  Functions                   //
 //////////////////////////////////////////////////
 
-#if defined(_WIN32) || defined(_WIN64)
-
 VOID
 PlatformTimeQuerySystemTime(PLARGE_INTEGER SystemTime);
 
@@ -29,5 +27,3 @@ PlatformTimeConvertToLocalTime(PLARGE_INTEGER SystemTime, PLARGE_INTEGER LocalTi
 
 VOID
 PlatformTimeConvertToTimeFields(PLARGE_INTEGER Time, PTIME_FIELDS TimeFields);
-
-#endif // defined(_WIN32) || defined(_WIN64)

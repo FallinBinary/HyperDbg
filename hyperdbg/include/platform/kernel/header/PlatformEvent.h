@@ -22,8 +22,6 @@
 VOID
 PlatformObjectDereference(PVOID Object);
 
-#if defined(_WIN32) || defined(_WIN64)
-
 LONG
 PlatformEventSet(PKEVENT Event, KPRIORITY Increment, BOOLEAN Wait);
 
@@ -34,5 +32,3 @@ PlatformObjectReferenceByHandle(HANDLE                    Handle,
                                 KPROCESSOR_MODE           AccessMode,
                                 PVOID *                   Object,
                                 POBJECT_HANDLE_INFORMATION HandleInformation);
-
-#endif // defined(_WIN32) || defined(_WIN64)

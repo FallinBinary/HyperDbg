@@ -125,6 +125,33 @@ typedef struct _PROCESS_INFORMATION
     DWORD  dwThreadId;
 } PROCESS_INFORMATION, *PPROCESS_INFORMATION, *LPPROCESS_INFORMATION;
 
+// NT status + kernel event/object types (the kernel notify path — see
+// PlatformEvent). Scalar/opaque definitions so the shared Windows signatures
+// compile on Linux; the event/object backing itself is stubbed for now (a real
+// version would map KEVENT onto eventfd). NTSTATUS is fundamental and reused
+// across many kernel TUs.
+typedef LONG  NTSTATUS;
+typedef LONG  KPRIORITY;
+typedef ULONG ACCESS_MASK;
+typedef CHAR  KPROCESSOR_MODE;
+typedef UCHAR KIRQL; // IRQL token; on Linux the raise/lower maps to preempt_disable/enable
+typedef KIRQL * PKIRQL;
+
+typedef struct _KEVENT KEVENT, *PKEVENT; // opaque (eventfd-backed later)
+typedef PVOID POBJECT_TYPE;              // opaque NT object type
+typedef PVOID POBJECT_HANDLE_INFORMATION; // opaque access-state out-param
+
+#    define STATUS_SUCCESS         ((NTSTATUS)0x00000000L)
+#    define STATUS_NOT_IMPLEMENTED ((NTSTATUS)0xC0000002L)
+#    define NT_SUCCESS(Status)     (((NTSTATUS)(Status)) >= 0)
+
+// NT I/O-manager types (the kernel notify path — see PlatformIo). Opaque for
+// now; the IRP / stack-location member layouts are only needed once hyperlog is
+// compiled (a real version maps the IRP onto a char-device read/ioctl request).
+typedef CHAR CCHAR;
+typedef struct _IRP               IRP, *PIRP;                             // opaque I/O request packet
+typedef struct _IO_STACK_LOCATION IO_STACK_LOCATION, *PIO_STACK_LOCATION; // opaque per-driver stack slot
+
 #endif
 
 #define NULL_ZERO   0

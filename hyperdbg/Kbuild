@@ -71,6 +71,7 @@ HyperDbg-objs += include/platform/kernel/code/PlatformIntrinsicsVmx.o
 # ===========================================================================
 
 # --- platform/kernel (OS abstraction layer) --------------------------------
+# These are ported and compile clean:
 HyperDbg-objs += include/platform/kernel/code/PlatformBroadcast.o
 HyperDbg-objs += include/platform/kernel/code/PlatformCpu.o
 HyperDbg-objs += include/platform/kernel/code/PlatformDbg.o
@@ -78,17 +79,19 @@ HyperDbg-objs += include/platform/kernel/code/PlatformDpc.o
 HyperDbg-objs += include/platform/kernel/code/PlatformEvent.o
 HyperDbg-objs += include/platform/kernel/code/PlatformIo.o
 HyperDbg-objs += include/platform/kernel/code/PlatformIrql.o
+# Still on the WDK (process/spinlock/time). Commented out so the module links
+# today; uncomment each as `make one FILE=...` on it goes green.
 HyperDbg-objs += include/platform/kernel/code/PlatformProcess.o
 HyperDbg-objs += include/platform/kernel/code/PlatformSpinlock.o
 HyperDbg-objs += include/platform/kernel/code/PlatformTime.o
 
 # --- components (shared, header-driven) ------------------------------------
-# HyperDbg-objs += include/components/spinlock/code/Spinlock.o
-# HyperDbg-objs += include/components/optimizations/code/AvlTree.o
-# HyperDbg-objs += include/components/optimizations/code/BinarySearch.o
-# HyperDbg-objs += include/components/optimizations/code/InsertionSort.o
-# HyperDbg-objs += include/components/optimizations/code/OptimizationsExamples.o
-# HyperDbg-objs += include/components/callback/code/HyperLogCallback.o
+HyperDbg-objs += include/components/spinlock/code/Spinlock.o
+HyperDbg-objs += include/components/optimizations/code/AvlTree.o
+HyperDbg-objs += include/components/optimizations/code/BinarySearch.o
+HyperDbg-objs += include/components/optimizations/code/InsertionSort.o
+HyperDbg-objs += include/components/optimizations/code/OptimizationsExamples.o
+HyperDbg-objs += include/components/callback/code/HyperLogCallback.o
 
 # --- script-eval (script engine kernel eval) -------------------------------
 # HyperDbg-objs += script-eval/code/Functions.o

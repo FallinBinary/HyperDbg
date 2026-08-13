@@ -835,9 +835,9 @@ make KDIR=/path/to/linux-headers
 ```
 
 kbuild prefers the root `Kbuild` under `M=`, so both build systems coexist.
-`Kbuild` lists every future object with the un-ported ones commented out. Current
-front: the ten `include/platform/kernel/` TUs, all uncommented — so the build
-stops at the first `#error "Not yet implemented"`.
+`Kbuild` lists every future object with the un-ported ones commented out. The
+`include/platform/kernel/` layer (13 TUs) is now **complete** — all compile and
+link into `HyperDbg.ko`. Next front is the subsystems above it (hyperlog first).
 
 | TU | Status |
 |----|--------|
@@ -847,13 +847,18 @@ stops at the first `#error "Not yet implemented"`.
 | `PlatformBroadcast.c` | ✅ ported 2026-08-01 |
 | `PlatformCpu.c` | ✅ ported 2026-08-01 — see below |
 | `PlatformDbg.c` | ✅ ported 2026-08-01 — see below |
-| `PlatformDpc.c` | ❌ 2 stubs — **next to fail**; also 2 *type* errors (see below) |
-| `PlatformIrql.c` | ❌ 2 stubs |
-| `PlatformEvent.c` | ❌ 3 stubs |
-| `PlatformIo.c` | ❌ 3 stubs |
-| `PlatformSpinlock.c` | ❌ 3 stubs |
-| `PlatformTime.c` | ❌ 3 stubs |
-| `PlatformProcess.c` | ❌ 5 stubs |
+| `PlatformDpc.c` | ✅ ported 2026-08-11 — BH-workqueue skeleton, see below |
+| `PlatformEvent.c` | ✅ ported 2026-08-11 — stub skeleton, see below |
+| `PlatformIo.c` | ✅ ported 2026-08-11 — stub skeleton, see below |
+| `PlatformIrql.c` | ✅ ported 2026-08-11 — **real** (preempt_disable/enable) |
+| `PlatformProcess.c` | ✅ ported 2026-08-11 — mostly real (`current`/task ids), $teb stub |
+| `PlatformSpinlock.c` | ✅ ported 2026-08-11 — **real** (spinlock_t / spin_lock) |
+| `PlatformTime.c` | ✅ ported 2026-08-11 — **real** (ktime + epoch conversion) |
+
+**🎉 The entire `platform/kernel` OS-abstraction layer now compiles and
+`HyperDbg.ko` links with all 13 TUs active (2026-08-11).** No `#error` stubs left
+in the layer. Next front: the subsystems above it (hyperlog is the natural first —
+it's the sole consumer of most of what was just built).
 
 ### `PlatformCpu.c` — DONE (2026-08-01)
 
@@ -893,18 +898,182 @@ Nuances, deliberately not "fixed" (would be logic changes; callers unaffected):
 
 - [ ] Revisit loglevel + `DbgPrintLimitation` sizing once kernel logging is exercised.
 
-### Next up: `PlatformDpc.c`
+### `PlatformDpc.c` — DONE (2026-08-11) — BH-workqueue skeleton
 
-Not a body swap — the signatures fail too (`PRKDPC`, `PKDEFERRED_ROUTINE` unknown
-on Linux). Needs Linux types for the KDPC object + deferred-routine fn-ptr first.
-Backing it with `smp_call_function_single_async` / `irq_work` / `tasklet` is a
-design decision, not a mechanical swap.
+Backing = **bottom-half (BH) workqueue** (`system_bh_wq`, kernel ≥6.9): runs in
+softirq context like a DPC/DISPATCH_LEVEL, but via the non-deprecated workqueue
+API (tasklets are deprecated). Only consumer is hyperlog's log→usermode notify
+path. Linux `KDPC` type added to `DataTypes.h` (guard `__linux__ &&
+HYPERDBG_KERNEL_MODE`; embeds `struct work_struct` + the routine/context/args) —
+must be a real struct since it's stored by value in `NOTIFY_RECORD`
+(`Logging.h:49`). `<linux/workqueue.h>` → `linux/kernel/pch.h`; `PlatformDpc.h`
+prototypes widened to `|| __linux__`.
+
+| Windows | Linux |
+|---------|-------|
+| `KeInitializeDpc` | stash routine/ctx + `INIT_WORK(&Work, trampoline)` |
+| `KeInsertQueueDpc` | stash args + `queue_work(system_bh_wq, &Work)` |
+
+Work callback gets only the work_struct ptr, so a `container_of` trampoline
+replays the Windows 4-arg call. `queue_work()` returns false when already pending,
+which matches `KeInsertQueueDpc`'s "FALSE if already queued" — returned directly.
+**SKELETON — compile-clean, not runtime-tested:** no teardown (a queued work item
+in a freed `NOTIFY_RECORD` = UAF; needs `cancel_work_sync` before free once
+hyperlog is ported). No live caller yet (hyperlog not compiled).
+
+### `PlatformEvent.c` — DONE (2026-08-11) — stub skeleton
+
+The EVENT_BASED half of the same hyperlog notify path: user-mode passes an event
+*handle*, the kernel references it to a `KEVENT` and later signals it. No direct
+Linux analog (no NT handles/object-manager); the real backing would be **eventfd**
+(deferred — it also needs a coordinated user-mode-side change). Stubbed for now.
+
+Type plumbing added to `BasicTypes.h` Linux block (shared, reused by later kernel
+TUs): `NTSTATUS`/`KPRIORITY`/`ACCESS_MASK`/`KPROCESSOR_MODE` scalars, opaque
+`KEVENT`/`POBJECT_TYPE`/`POBJECT_HANDLE_INFORMATION`, and
+`STATUS_SUCCESS`/`STATUS_NOT_IMPLEMENTED`/`NT_SUCCESS`. Sole definitions (no
+collision — the two other `NTSTATUS` hits are *uses* in kernel headers).
+
+| Windows | Linux stub | eventfd TODO |
+|---------|-----------|--------------|
+| `ObDereferenceObject` | no-op | `eventfd_ctx_put` |
+| `KeSetEvent` | return 0 | `eventfd_signal` |
+| `ObReferenceObjectByHandle` | `*Object=NULL`, return `STATUS_NOT_IMPLEMENTED` | `eventfd_ctx_fdget` |
+
+Consequence: EVENT_BASED notify is a no-op/fail-closed on Linux until eventfd
+lands. No live caller yet (hyperlog not compiled).
+
+**Header cleanup (both Dpc + Event):** the `#if _WIN32 || _WIN64 || __linux__`
+wrappers around the prototypes were removed — that condition is every supported
+platform (the `.c` files `#error` on anything else), so the prototypes are now
+declared unconditionally.
+
+### `PlatformIo.c` — DONE (2026-08-11) — stub skeleton
+
+The IRP (I/O Request Packet) third of the same hyperlog notify path. No NT IRP on
+Linux — a real version maps the IRP onto the char-device read/ioctl request that
+carries the notify buffer (deferred with the rest of the device layer). Stubbed.
+
+Opaque types added to `BasicTypes.h` Linux block: `CCHAR` + forward-declared
+`IRP`/`PIRP` and `IO_STACK_LOCATION`/`PIO_STACK_LOCATION` (enough for the
+signatures; the member layouts are only needed once Logging.c compiles).
+
+| Windows | Linux stub |
+|---------|-----------|
+| `IoGetCurrentIrpStackLocation` | return `NULL` |
+| `IoCompleteRequest` | no-op |
+| `IoMarkIrpPending` | no-op |
+
+Prototype guard removed (unconditional, same as Dpc/Event). No live caller yet
+(hyperlog not compiled).
+
+### `PlatformIrql.c` — DONE (2026-08-11) — **real mapping** (not a stub)
+
+DISPATCH_LEVEL = preemption off, hardware interrupts still on = Linux
+`preempt_disable()`. (`local_irq_save` would be a *higher* level — wrong.) The
+one caller (`Logging.c:387/406`) raises to hold off preemption while it takes a
+lock, then lowers — a balanced pair, both arms under the same `if (!IsVmxRoot)`.
+
+| Windows | Linux |
+|---------|-------|
+| `KeRaiseIrqlToDpcLevel()` | `preempt_disable()`; return 0 |
+| `KeLowerIrql(OldIrql)` | `preempt_enable()` (OldIrql ignored) |
+
+Verified against `include/linux/preempt.h`: `preempt_disable`/`preempt_enable`
+are `preempt_count_inc`/`dec` — a **nesting counter**, no saved token. So the
+returned `KIRQL` is unused (Linux restores by decrement, not to an absolute
+level); correctness only needs the raise/lower to be **balanced**, which the
+caller is. `preempt_enable`'s reschedule-on-zero even mirrors `KeLowerIrql`
+draining pending DPCs. `KIRQL` (`UCHAR`) added to `BasicTypes.h`; guard removed.
+`preempt_*` resolve transitively via pch — no extra include.
+
+### `PlatformProcess.c` — DONE (2026-08-11) — mostly real
+
+Five current-process/thread queries, all called from `PseudoRegisters.c`
+(kernel branch: `$tid`/`$pid`/`$pname`/`$proc`/`$thread`/`$teb`).
+
+| Windows | Linux |
+|---------|-------|
+| `PsGetCurrentThreadId` | `(HANDLE)(uintptr_t)task_pid_nr(current)` — `tsk->pid` = TID |
+| `PsGetCurrentProcessId` | `(HANDLE)(uintptr_t)task_tgid_nr(current)` — `tsk->tgid` = PID |
+| `PsGetCurrentProcess` | `(PVOID)current->group_leader` |
+| `PsGetCurrentThread` | `(PVOID)current` (a task *is* a thread) |
+| `PsGetCurrentThreadTeb` | `NULL` — no Linux TEB (cf. `$peb`) |
+
+Watch the kernel's inverted naming: `task->pid` is the *thread* id, `task->tgid`
+the *process* id — so Id uses `task_pid_nr`, ProcessId uses `task_tgid_nr` (NOT
+the reverse). `pid_t`→`HANDLE` needs the `(uintptr_t)` cast (else `-Wint-conversion`).
+`GetCurrentProcess` uses `current->group_leader` (NOT `current`): `PsGetCurrentProcess`
+is per-*process* — identical for all threads — so it must be the thread-group leader,
+not the per-thread `current` (which `GetCurrentThread` correctly returns). `current`/
+`task_*_nr`/`uintptr_t` resolve via pch. **Follow-up:** `$pname` name won't work until
+`CommonGetProcessNameFromProcessControlBlock` (hyperhv/hyperkd) is ported to read
+`((struct task_struct *)Eprocess)->comm`.
+
+### `PlatformSpinlock.c` — DONE (2026-08-11) — **real mapping**
+
+`KeAcquireSpinLock` raises to DISPATCH_LEVEL (preempt off, HW IRQs on) + acquires
+= Linux `spin_lock()`; same DISPATCH↔preempt mapping as `PlatformIrql`. All
+callers are the hyperlog buffer locks (`Logging.c`).
+
+| Windows | Linux |
+|---------|-------|
+| `KeInitializeSpinLock` | `spin_lock_init` |
+| `KeAcquireSpinLock(l,&old)` | `spin_lock(l)`; `*OldIrql = 0` |
+| `KeReleaseSpinLock(l,old)` | `spin_unlock(l)` (OldIrql ignored) |
+
+`KSPIN_LOCK` is stored **by value** in `LOG_BUFFER_INFORMATION` (`Logging.h:70`),
+so the Linux type is a real `spinlock_t` (typedef in `DataTypes.h`, kernel-guarded
+like `KDPC`; `<linux/spinlock.h>` → pch). `PKIRQL` added to `BasicTypes.h`. The
+`OldIrql` token is vestigial (preempt is a nesting counter). Chose `spin_lock`
+over `spin_lock_irqsave` deliberately: irqsave disables IRQs (higher than Windows
+takes here) *and* its `unsigned long flags` wouldn't fit the 1-byte `KIRQL`. If a
+future caller takes one of these locks from hard-IRQ context, revisit (irqsave,
+with flags stored in the lock struct). Guard removed.
+
+### `PlatformTime.c` — DONE (2026-08-11) — **real** (log timestamps)
+
+Sole caller: `Logging.c:1072` builds a log-message timestamp
+(QuerySystemTime→ConvertToLocalTime→ConvertToTimeFields). NT time is 100-ns ticks
+since **1601**; Linux gives Unix-epoch (1970) — bridged by two constants
+(`HUNDRED_NS_PER_SEC`, `EPOCH_DIFF_1601_TO_1970_SECS = 11644473600`).
+
+| Windows | Linux |
+|---------|-------|
+| `KeQuerySystemTime` | `ktime_get_real_ts64` → `(sec + epochdiff)*1e7 + nsec/100` |
+| `ExSystemTimeToLocalTime` | subtract `sys_tz.tz_minuteswest*60*1e7` (0 if RTC=UTC) |
+| `RtlTimeToTimeFields` | `time64_to_tm` → fill `TIME_FIELDS` (Year=tm_year+1900, Month=tm_mon+1, Weekday Sun=0) |
+
+`TIME_FIELDS` added to `DataTypes.h` (plain struct). `<linux/timekeeping.h>` +
+`<linux/time.h>` included locally in the `.c` (not pch — no shared type embeds
+them). All three kernel symbols are module-exported (verified). Guard removed.
+Note: upstream `Logging.c` currently has the timestamp *formatting* commented out
+(`RtlStringCchPrintfA` not IRQL-safe), so the value is computed but not yet printed.
 
 ---
 
 ## Building
 
 ```bash
-cmake .   # re-run only when CMake files change
+cmake .   # re-run only when CMake files change (user-mode CLI)
 make      # build; find the next file that fails, port it, repeat
 ```
+
+### Kernel module — file-by-file port loop
+
+From `linux/kernel/`:
+
+```bash
+make one FILE=include/platform/kernel/code/PlatformDpc.c  # compile ONE TU, no link
+# ...stub out the WDK bits until it compiles clean...
+# then move its line into the ACTIVE block of ../../Kbuild and:
+make            # full module build -> ../../HyperDbg.ko
+```
+
+`make one` wraps kbuild's single-object target (`make -C $KDIR M=$ROOT File.o`):
+it compiles just that TU with the Kbuild `ccflags-y` include paths and **does not
+link the module**, so you see only that file's own WDK/type errors instead of a
+wall of undefined-symbol link errors from the not-yet-ported files. The file need
+not be in `Kbuild` yet. Keep `HyperDbg-objs` = only files that compile clean, so a
+full `make` always yields a loadable `.ko`; promote each file's line once `make
+one` on it is green.

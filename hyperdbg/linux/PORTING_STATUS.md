@@ -1072,6 +1072,14 @@ win + linux arms, mirroring the existing 64-bit CAS):
 
 `HyperDbg.ko` links clean with these three components active.
 
+Windows fallout (fixed same day): `hyperlog` was the one MSVC project that compiles
+`Spinlock.c` without `PlatformIntrinsics.c`, so the new `Cpu*` calls broke its build
+(C4013 + would not have linked). Added `PlatformIntrinsics.c` to `hyperlog.vcxproj`
+(+ `.filters`) and `PlatformIntrinsics.h` to `hyperlog/header/pch.h`, matching what
+`hyperperf`/`hypertrace`/`hyperkd`/`hyperevade`/`hyperhv` already do. Rule of thumb:
+any new `Cpu*` call inside `include/components/` must be checked against every
+`.vcxproj` that compiles that component.
+
 ---
 
 ## Building

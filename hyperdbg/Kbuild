@@ -50,6 +50,11 @@ ccflags-y += -I$(src)/linux/kernel
 ccflags-y += -I$(src)/include
 ccflags-y += -I$(src)/dependencies
 
+# Windows-origin sources declare no-argument functions as `f()` rather than the
+# ISO C `f(void)`; the kernel builds with -Werror=strict-prototypes, so silence
+# it module-wide rather than editing every shared signature.
+ccflags-y += -Wno-strict-prototypes
+
 # Force default C dialect etc. can be added here later, e.g.:
 # ccflags-y += -Wno-declaration-after-statement
 #

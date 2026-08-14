@@ -11,6 +11,20 @@
  */
 #include "pch.h"
 
+#if defined(__linux__)
+//
+// hyperlog-specific headers. On Windows these arrive via hyperlog/header/pch.h;
+// the unified Linux kernel pch.h stays module-agnostic, so this TU pulls in its
+// own SDK module + import + globals headers here (mirrors the platform layer's
+// `#include "../header/..."` pattern). Logging.h defines this module's globals,
+// so it is included ONLY by this .c — not by the shared pch.
+//
+#    define HYPERDBG_HYPER_LOG
+#    include "SDK/modules/HyperLog.h"
+#    include "SDK/imports/kernel/HyperDbgHyperLogImports.h"
+#    include "../header/Logging.h"
+#endif // __linux__
+
 /**
  * @brief Checks whether the message tracing operates on vmx-root mode or not
  *

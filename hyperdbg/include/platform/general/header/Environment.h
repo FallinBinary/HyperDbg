@@ -43,6 +43,13 @@
 #    define _In_reads_bytes_(x)
 #    define _Out_writes_bytes_(x)
 #    define _Inout_updates_bytes_all_(x)
+#    define _Use_decl_annotations_
+
+// MSVC extended-attribute keyword. The only forms used in the shared tree are
+// dllexport/dllimport (the per-module import/export plumbing, which collapses to
+// nothing in the single Linux module) and deprecated (a harmless hint). No
+// __declspec(align(...)) exists in kernel scope, so emptying it is safe.
+#    define __declspec(x)
 
 // The following libc headers exist only in user space; a Linux KERNEL build
 // (HYPERDBG_KERNEL_MODE) has no libc, so they are guarded out there. User-mode

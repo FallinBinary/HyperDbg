@@ -52,6 +52,7 @@
 #include "platform/kernel/header/PlatformDbg.h"
 #include "platform/kernel/header/PlatformDpc.h"
 #include "platform/kernel/header/PlatformEvent.h"
+#include "platform/kernel/header/PlatformIntrinsics.h"
 #include "platform/kernel/header/PlatformIo.h"
 #include "platform/kernel/header/PlatformIrql.h"
 #include "platform/kernel/header/PlatformMem.h"

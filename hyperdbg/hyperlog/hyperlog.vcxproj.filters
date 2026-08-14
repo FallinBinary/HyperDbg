@@ -42,6 +42,9 @@
     <ClCompile Include="..\include\platform\kernel\code\PlatformEvent.c">
       <Filter>code\platform</Filter>
     </ClCompile>
+    <ClCompile Include="..\include\platform\kernel\code\PlatformIntrinsics.c">
+      <Filter>code\platform</Filter>
+    </ClCompile>
     <ClCompile Include="..\include\platform\kernel\code\PlatformIo.c">
       <Filter>code\platform</Filter>
     </ClCompile>

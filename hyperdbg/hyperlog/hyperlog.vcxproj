@@ -108,6 +108,7 @@
     <ClCompile Include="..\include\platform\kernel\code\PlatformDbg.c" />
     <ClCompile Include="..\include\platform\kernel\code\PlatformDpc.c" />
     <ClCompile Include="..\include\platform\kernel\code\PlatformEvent.c" />
+    <ClCompile Include="..\include\platform\kernel\code\PlatformIntrinsics.c" />
     <ClCompile Include="..\include\platform\kernel\code\PlatformIo.c" />
     <ClCompile Include="..\include\platform\kernel\code\PlatformIrql.c" />
     <ClCompile Include="..\include\platform\kernel\code\PlatformMem.c" />
@@ -121,6 +122,7 @@
     <ClInclude Include="..\include\platform\kernel\header\PlatformCpu.h" />
     <ClInclude Include="..\include\platform\kernel\header\PlatformDpc.h" />
     <ClInclude Include="..\include\platform\kernel\header\PlatformEvent.h" />
+    <ClInclude Include="..\include\platform\kernel\header\PlatformIntrinsics.h" />
     <ClInclude Include="..\include\platform\kernel\header\PlatformIo.h" />
     <ClInclude Include="..\include\platform\kernel\header\PlatformIrql.h" />
     <ClInclude Include="..\include\platform\kernel\header\PlatformMem.h" />

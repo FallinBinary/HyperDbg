@@ -101,6 +101,15 @@ typedef UINT16 WCHAR;
 typedef PVOID    HANDLE;
 typedef HANDLE * PHANDLE;
 
+// NT counted string (ntdef.h). Kept in its Windows shape so the shared driver
+// entry points that take one keep their signature; no Linux caller builds one.
+typedef struct _UNICODE_STRING
+{
+    USHORT  Length;
+    USHORT  MaximumLength;
+    WCHAR * Buffer;
+} UNICODE_STRING, *PUNICODE_STRING;
+
 // Windows pointer-style aliases (used by the cross-platform driver/IOCTL wrappers)
 typedef PVOID   LPVOID;
 typedef DWORD * LPDWORD;
@@ -141,16 +150,63 @@ typedef struct _KEVENT KEVENT, *PKEVENT; // opaque (eventfd-backed later)
 typedef PVOID POBJECT_TYPE;              // opaque NT object type
 typedef PVOID POBJECT_HANDLE_INFORMATION; // opaque access-state out-param
 
-#    define STATUS_SUCCESS         ((NTSTATUS)0x00000000L)
-#    define STATUS_NOT_IMPLEMENTED ((NTSTATUS)0xC0000002L)
-#    define NT_SUCCESS(Status)     (((NTSTATUS)(Status)) >= 0)
+#    define STATUS_SUCCESS               ((NTSTATUS)0x00000000L)
+#    define STATUS_PENDING               ((NTSTATUS)0x00000103L)
+#    define STATUS_NOT_IMPLEMENTED       ((NTSTATUS)0xC0000002L)
+#    define STATUS_INVALID_PARAMETER     ((NTSTATUS)0xC000000DL)
+#    define STATUS_INSUFFICIENT_RESOURCES ((NTSTATUS)0xC000009AL)
+#    define NT_SUCCESS(Status)           (((NTSTATUS)(Status)) >= 0)
 
-// NT I/O-manager types (the kernel notify path — see PlatformIo). Opaque for
-// now; the IRP / stack-location member layouts are only needed once hyperlog is
-// compiled (a real version maps the IRP onto a char-device read/ioctl request).
+// Access-mask bits used when referencing a user-mode event object (winnt.h)
+#    define SYNCHRONIZE        0x00100000L
+#    define EVENT_MODIFY_STATE 0x0002
+
+// NT I/O-manager types (the kernel notify path — see PlatformIo). Only the
+// members the shared code touches are mirrored, under their WDK names; the
+// layout is NOT the NT one and nothing here is produced by a Linux kernel yet
+// (a real version maps the IRP onto a char-device read/ioctl request, with
+// PlatformIo filling these in).
 typedef CHAR CCHAR;
-typedef struct _IRP               IRP, *PIRP;                             // opaque I/O request packet
-typedef struct _IO_STACK_LOCATION IO_STACK_LOCATION, *PIO_STACK_LOCATION; // opaque per-driver stack slot
+
+#    define IO_NO_INCREMENT 0
+
+typedef struct _IO_STATUS_BLOCK
+{
+    NTSTATUS  Status;
+    ULONG_PTR Information;
+} IO_STATUS_BLOCK, *PIO_STATUS_BLOCK;
+
+typedef struct _IO_STACK_LOCATION
+{
+    UCHAR MajorFunction;
+    UCHAR MinorFunction;
+
+    union
+    {
+        struct
+        {
+            ULONG OutputBufferLength;
+            ULONG InputBufferLength;
+            ULONG IoControlCode;
+            PVOID Type3InputBuffer;
+        } DeviceIoControl;
+    } Parameters;
+} IO_STACK_LOCATION, *PIO_STACK_LOCATION;
+
+typedef struct _IRP
+{
+    CCHAR StackCount;
+    CCHAR CurrentLocation;
+
+    union
+    {
+        PVOID SystemBuffer;
+    } AssociatedIrp;
+
+    IO_STATUS_BLOCK IoStatus;
+    KPROCESSOR_MODE RequestorMode;
+    PVOID           UserBuffer;
+} IRP, *PIRP;
 
 #endif
 

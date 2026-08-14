@@ -84,34 +84,37 @@ HyperDbg-objs += include/platform/kernel/code/PlatformDpc.o
 HyperDbg-objs += include/platform/kernel/code/PlatformEvent.o
 HyperDbg-objs += include/platform/kernel/code/PlatformIo.o
 HyperDbg-objs += include/platform/kernel/code/PlatformIrql.o
-# Still on the WDK (process/spinlock/time). Commented out so the module links
-# today; uncomment each as `make one FILE=...` on it goes green.
 HyperDbg-objs += include/platform/kernel/code/PlatformProcess.o
 HyperDbg-objs += include/platform/kernel/code/PlatformSpinlock.o
+HyperDbg-objs += include/platform/kernel/code/PlatformStr.o
 HyperDbg-objs += include/platform/kernel/code/PlatformTime.o
+# --- hyperlog (message logging/tracing) ------------------------------------
+HyperDbg-objs += hyperlog/code/Logging.o
+HyperDbg-objs += hyperlog/code/UnloadDll.o
 
 # --- components (shared, header-driven) ------------------------------------
 # Self-contained (compile clean today):
 HyperDbg-objs += include/components/spinlock/code/Spinlock.o
 HyperDbg-objs += include/components/optimizations/code/AvlTree.o
 HyperDbg-objs += include/components/optimizations/code/InsertionSort.o
-# hyperlog-gated — these pull in the logging layer (Log/LogInfo) and its globals
-# (g_Callbacks), so they cannot compile until hyperlog/code/Logging.c is ported.
-# Uncomment each alongside hyperlog.
-# HyperDbg-objs += include/components/optimizations/code/BinarySearch.o
-# HyperDbg-objs += include/components/optimizations/code/OptimizationsExamples.o
+# Need the logging layer (Log/LogInfo), so they came online with hyperlog:
+HyperDbg-objs += include/components/optimizations/code/BinarySearch.o
+HyperDbg-objs += include/components/optimizations/code/OptimizationsExamples.o
+# DROPPED (Windows-only): callback/HyperLogCallback.c DEFINES the same
+# LogCallback* entry points as hyperlog/Logging.c. On Windows that is the
+# per-DLL forwarding shim — hyperhv/hypertrace/hyperperf cannot call into
+# hyperlog.dll directly, so each compiles this file to bounce through its own
+# g_Callbacks table. In the single Linux module the real implementation is
+# already linked in, so this file is both redundant and a duplicate symbol.
 # HyperDbg-objs += include/components/callback/code/HyperLogCallback.o
 
 # --- script-eval (script engine kernel eval) -------------------------------
-# HyperDbg-objs += script-eval/code/Functions.o
-# HyperDbg-objs += script-eval/code/Keywords.o
-# HyperDbg-objs += script-eval/code/PseudoRegisters.o
-# HyperDbg-objs += script-eval/code/Regs.o
-# HyperDbg-objs += script-eval/code/ScriptEngineEval.o
+HyperDbg-objs += script-eval/code/Functions.o
+HyperDbg-objs += script-eval/code/Keywords.o
+HyperDbg-objs += script-eval/code/PseudoRegisters.o
+HyperDbg-objs += script-eval/code/Regs.o
+HyperDbg-objs += script-eval/code/ScriptEngineEval.o
 
-# --- hyperlog (message logging/tracing) ------------------------------------
-HyperDbg-objs += hyperlog/code/Logging.o
-HyperDbg-objs += hyperlog/code/UnloadDll.o
 
 # --- hyperhv (hypervisor: VMX/EPT) -----------------------------------------
 # HyperDbg-objs += hyperhv/code/broadcast/Broadcast.o

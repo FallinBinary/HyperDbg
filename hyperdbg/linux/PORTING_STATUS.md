@@ -857,8 +857,10 @@ link into `HyperDbg.ko`. Next front is the subsystems above it (hyperlog first).
 
 **🎉 The entire `platform/kernel` OS-abstraction layer now compiles and
 `HyperDbg.ko` links with all 13 TUs active (2026-08-11).** No `#error` stubs left
-in the layer. Next front: the subsystems above it (hyperlog is the natural first —
-it's the sole consumer of most of what was just built).
+in the layer. Then `components/` (2026-08-14) and `hyperlog/` (2026-08-14, see
+below) came online on top of it. **Next front: `script-eval/` — `Functions.c`
+first (`wchar_t` has no kernel definition, plus `-Werror=return-type` on the
+UNREACHABLE-style tails).**
 
 ### `PlatformCpu.c` — DONE (2026-08-01)
 
@@ -1079,6 +1081,46 @@ Windows fallout (fixed same day): `hyperlog` was the one MSVC project that compi
 `hyperperf`/`hypertrace`/`hyperkd`/`hyperevade`/`hyperhv` already do. Rule of thumb:
 any new `Cpu*` call inside `include/components/` must be checked against every
 `.vcxproj` that compiles that component.
+
+### `hyperlog/` — DONE (2026-08-14) — `Logging.c` + `UnloadDll.c`
+
+`HyperDbg.ko` links with the whole message-tracing layer active, plus the two
+components that were waiting on it (`BinarySearch.o`, `OptimizationsExamples.o`).
+
+| Windows | Linux |
+|---------|-------|
+| `vsprintf_s` / `sprintf_s` / `strnlen_s` | new `PlatformStr.{h,c}` → `vsnprintf` / `strnlen` |
+| `RTL_NUMBER_OF`, `ASSERT`, `_Analysis_assume_` | `Environment.h` macros (`ASSERT` → `WARN_ON`) |
+| `IRP`, `IO_STACK_LOCATION`, `IO_STATUS_BLOCK`, `UNICODE_STRING` | real structs in `BasicTypes.h` (WDK member names, NOT the NT layout) |
+| `STATUS_PENDING/INVALID_PARAMETER/INSUFFICIENT_RESOURCES`, `IO_NO_INCREMENT`, `SYNCHRONIZE`, `EVENT_MODIFY_STATE` | same values, `BasicTypes.h` |
+| `ExEventObjectType` (ntddk global) | placeholder token defined in `PlatformEvent.c` |
+
+The IRP structs were the one real decision: `Logging.c` dereferences IRP members
+directly, so the opaque `struct _IRP` shim had to grow the members the shared code
+touches (the header already said this was owed once hyperlog compiled). Nothing
+constructs one on Linux yet — `PlatformIo` is still stubbed, so the whole
+IRP/EVENT notify path is compile-only until the char device lands.
+
+`PlatformSprintf` already existed, misplaced, in `PlatformMem.{h,c}` with no
+callers; moved into `PlatformStr` so both spellings share the "-1 on truncation"
+semantics that `Logging.c` tests for. `PlatformStr.c` is wired into `Kbuild` +
+`hyperlog.vcxproj`/`.filters` + both pch files.
+
+Two Linux-only edits inside shared code: `(PVOID *)` cast on the
+`PlatformObjectReferenceByHandle` out-param (`PKEVENT *` → `PVOID *`, which the
+kernel build treats as an error and MSVC accepts), and the `#if defined(__linux__)`
+include block at the top of `Logging.c`.
+
+**DROPPED (Windows-only): `components/callback/HyperLogCallback.c`.** It *defines*
+the same `LogCallback*` entry points as `Logging.c` — on Windows it is the per-DLL
+forwarding shim (hyperhv/hypertrace/hyperperf cannot call into `hyperlog.dll`, so
+each compiles it to bounce through its own `g_Callbacks`). One Linux module = the
+real implementation is already linked in, so it is redundant *and* a duplicate
+symbol. Kept commented out in `Kbuild` with that note.
+
+The unified `linux/kernel/pch.h` gained `config/Configuration.h`, the hyperlog
+SDK module/imports/intrinsics headers (the `Log`/`LogInfo` macros — on Windows
+every project pch has these) and the three `components/optimizations` headers.
 
 ---
 

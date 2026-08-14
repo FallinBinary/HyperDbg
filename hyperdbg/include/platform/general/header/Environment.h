@@ -44,6 +44,7 @@
 #    define _Out_writes_bytes_(x)
 #    define _Inout_updates_bytes_all_(x)
 #    define _Use_decl_annotations_
+#    define _Analysis_assume_(x)
 
 // MSVC extended-attribute keyword. The only forms used in the shared tree are
 // dllexport/dllimport (the per-module import/export plumbing, which collapses to
@@ -105,6 +106,15 @@ typedef void * HMODULE;
 
 // Misc Windows macros
 #    define UNREFERENCED_PARAMETER(P) ((void)(P))
+
+// NT element-count macro (ntdef.h)
+#    define RTL_NUMBER_OF(A) (sizeof(A) / sizeof((A)[0]))
+
+// NT ASSERT. On a checked Windows build this bugchecks; the closest kernel-side
+// Linux analog that keeps the machine alive is WARN_ON (splat + continue).
+#    ifdef HYPERDBG_KERNEL_MODE
+#        define ASSERT(Expression) WARN_ON(!(Expression))
+#    endif // HYPERDBG_KERNEL_MODE
 
 // Win32 wait/event constants (used by the cross-platform sync wrappers)
 #    define INFINITE      0xFFFFFFFF

@@ -57,4 +57,5 @@
 #include "platform/kernel/header/PlatformIrql.h"
 #include "platform/kernel/header/PlatformMem.h"
 #include "platform/kernel/header/PlatformSpinlock.h"
+#include "platform/kernel/header/PlatformStr.h"
 #include "platform/kernel/header/PlatformTime.h"

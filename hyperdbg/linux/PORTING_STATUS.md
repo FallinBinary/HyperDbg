@@ -1050,6 +1050,28 @@ them). All three kernel symbols are module-exported (verified). Guard removed.
 Note: upstream `Logging.c` currently has the timestamp *formatting* commented out
 (`RtlStringCchPrintfA` not IRQL-safe), so the value is computed but not yet printed.
 
+### `components/` layer — PARTIAL (2026-08-14)
+
+Whole `components/` block had been uncommented in `Kbuild` optimistically, but only
+three of six TUs are self-contained. Active now (compile clean, in `HyperDbg.ko`):
+`spinlock/Spinlock.o`, `optimizations/AvlTree.o`, `optimizations/InsertionSort.o`.
+Re-commented (hyperlog-gated — need `Log`/`LogInfo` + the `g_Callbacks` global):
+`optimizations/BinarySearch.o`, `optimizations/OptimizationsExamples.o`,
+`callback/HyperLogCallback.o`. Uncomment those alongside `hyperlog/Logging.c`.
+
+**`Spinlock.c`** — three MSVC intrinsics routed through the platform-intrinsics
+layer (chosen over file-local shims: keeps the `Cpu*` wrappers the single intrinsic
+boundary). Two new kernel wrappers added to `PlatformIntrinsics.{h,c}` (both with
+win + linux arms, mirroring the existing 64-bit CAS):
+
+| Spinlock.c call | new wrapper | Linux impl |
+|-----------------|-------------|-----------|
+| `_mm_pause()` | `CpuPause()` (already existed) | `__asm__("pause")` |
+| `_interlockedbittestandset(l,0)` | `CpuInterlockedBitTestAndSet` | `__atomic_fetch_or` → old bit |
+| `InterlockedCompareExchange` | `CpuInterlockedCompareExchange` (32-bit) | `__atomic_compare_exchange_n` |
+
+`HyperDbg.ko` links clean with these three components active.
+
 ---
 
 ## Building

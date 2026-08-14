@@ -226,6 +226,12 @@ CpuInterlockedDecrement64(INT64 volatile * Addend);
 extern inline INT64
 CpuInterlockedCompareExchange64(INT64 volatile * Destination, INT64 ExChange, INT64 Comparand);
 
+extern inline LONG
+CpuInterlockedCompareExchange(LONG volatile * Destination, LONG ExChange, LONG Comparand);
+
+extern inline UCHAR
+CpuInterlockedBitTestAndSet(volatile LONG * Base, LONG Bit);
+
 //////////////////////////////////////////////////
 //           Descriptor Table Instructions      //
 //////////////////////////////////////////////////

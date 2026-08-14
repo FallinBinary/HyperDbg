@@ -406,6 +406,40 @@ CpuInterlockedCompareExchange64(INT64 volatile * Destination, INT64 ExChange, IN
 #endif
 }
 
+/**
+ * @brief Atomic 32-bit compare-exchange
+ */
+inline LONG
+CpuInterlockedCompareExchange(LONG volatile * Destination, LONG ExChange, LONG Comparand)
+{
+#if defined(_WIN32) || defined(_WIN64)
+    return InterlockedCompareExchange(Destination, ExChange, Comparand);
+#elif defined(__linux__)
+    LONG Expected = Comparand;
+    __atomic_compare_exchange_n(Destination, &Expected, ExChange, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    return Expected;
+#else
+#    error "Unsupported platform"
+#endif
+}
+
+/**
+ * @brief Atomically set a bit, returning its previous value
+ */
+inline UCHAR
+CpuInterlockedBitTestAndSet(volatile LONG * Base, LONG Bit)
+{
+#if defined(_WIN32) || defined(_WIN64)
+    return _interlockedbittestandset(Base, Bit);
+#elif defined(__linux__)
+    LONG Mask = (1L << Bit);
+    LONG Old  = __atomic_fetch_or(Base, Mask, __ATOMIC_SEQ_CST);
+    return (UCHAR)((Old >> Bit) & 1);
+#else
+#    error "Unsupported platform"
+#endif
+}
+
 //////////////////////////////////////////////////
 //           Descriptor Table Instructions      //
 //////////////////////////////////////////////////
